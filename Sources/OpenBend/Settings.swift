@@ -1,0 +1,145 @@
+import Foundation
+import Observation
+
+enum BendStyle: String, CaseIterable, Identifiable {
+    case duo, silk, shade, frost, custom
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .duo: "Duo"
+        case .silk: "Silk"
+        case .shade: "Shade"
+        case .frost: "Frost"
+        case .custom: "Custom"
+        }
+    }
+
+    var blurb: String {
+        switch self {
+        case .duo: "Clear at the hinge. Soft toward the edge."
+        case .silk: "A clean tilt with a whisper of blur."
+        case .shade: "The lid casts a shadow as it comes down."
+        case .frost: "Frosted glass. The desktop softens into haze."
+        case .custom: "Your own mix of the sliders."
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .duo: "rectangle.bottomhalf.filled"
+        case .silk: "wind"
+        case .shade: "moon.fill"
+        case .frost: "snowflake"
+        case .custom: "slider.horizontal.3"
+        }
+    }
+
+    /// (perspective, blur, shadow) in 0...1.
+    var preset: (Double, Double, Double)? {
+        switch self {
+        case .duo: (0.58, 0.85, 0.28)
+        case .silk: (0.72, 0.25, 0.25)
+        case .shade: (0.75, 0.15, 0.85)
+        case .frost: (0.62, 0.90, 0.30)
+        case .custom: nil
+        }
+    }
+}
+
+/// User settings, persisted to UserDefaults.
+@Observable
+final class Settings {
+    static let shared = Settings()
+
+    @ObservationIgnored private let defaults = UserDefaults.standard
+    @ObservationIgnored private var applyingPreset = false
+    @ObservationIgnored private var loading = true
+    /// Fired on the main thread after any change.
+    @ObservationIgnored var onChange: (() -> Void)?
+
+    var style: BendStyle { didSet { save(style.rawValue, "style"); applyPresetIfNeeded(); changed() } }
+    /// Keep Duo’s spatial optics when a slider turns its preset into a custom mix.
+    private(set) var useDuoOptics: Bool { didSet { save(useDuoOptics, "useDuoOptics"); changed() } }
+    var perspective: Double { didSet { save(perspective, "perspective"); markCustom(); changed() } }
+    var blur: Double { didSet { save(blur, "blur"); markCustom(); changed() } }
+    var shadow: Double { didSet { save(shadow, "shadow"); markCustom(); changed() } }
+    /// Lid angle (degrees) above which the desktop clears and the overlay hides.
+    var clearAngle: Double { didSet { save(clearAngle, "clearAngle"); changed() } }
+    /// True: follow the hinge sensor. False: use `manualAngle`.
+    var followLid: Bool { didSet { save(followLid, "followLid"); changed() } }
+    var manualAngle: Double { didSet { save(manualAngle, "manualAngle"); changed() } }
+    var soundEnabled: Bool { didSet { save(soundEnabled, "soundEnabled"); changed() } }
+    /// Eye height as a fraction of eye distance (0.5 ≈ looking down 27° at the hinge).
+    /// No UI; tune with `defaults write com.openbend.OpenBend eyeHeightRatio -float 0.6`.
+    var eyeHeightRatio: Double { didSet { save(eyeHeightRatio, "eyeHeightRatio"); changed() } }
+    /// How much of the perspective's horizontal narrowing to draw (1 = physically exact, 0 = none).
+    /// Moderate by default; past the content's edge the diffused light spills out as a soft glow.
+    /// `defaults write com.openbend.OpenBend keystone -float 0.4`.
+    var keystone: Double { didSet { save(keystone, "keystone"); changed() } }
+    /// Low-pass time constant for the lid angle, seconds. Smaller = quicker, steppier.
+    var smoothing: Double { didSet { save(smoothing, "smoothing"); changed() } }
+    /// How far ahead (seconds) to extrapolate the lid's motion to cancel pipeline latency.
+    var leadTime: Double { didSet { save(leadTime, "leadTime"); changed() } }
+    /// Not persisted. Pausing stops capture entirely.
+    var isPaused = false { didSet { changed() } }
+
+    private init() {
+        defaults.register(defaults: [
+            "style": BendStyle.duo.rawValue,
+            "perspective": 0.58, "blur": 0.85, "shadow": 0.28,
+            "clearAngle": 90.0, "followLid": true, "manualAngle": 45.0, "soundEnabled": true,
+            "eyeHeightRatio": 0.5, "keystone": 0.4, "smoothing": 0.03, "leadTime": 0.03,
+        ])
+        let savedStyle = BendStyle(rawValue: defaults.string(forKey: "style") ?? "") ?? .duo
+        style = savedStyle
+        useDuoOptics = savedStyle == .custom ? defaults.bool(forKey: "useDuoOptics") : savedStyle == .duo
+        perspective = defaults.double(forKey: "perspective")
+        blur = defaults.double(forKey: "blur")
+        shadow = defaults.double(forKey: "shadow")
+        clearAngle = defaults.double(forKey: "clearAngle")
+        followLid = defaults.bool(forKey: "followLid")
+        manualAngle = defaults.double(forKey: "manualAngle")
+        soundEnabled = defaults.bool(forKey: "soundEnabled")
+        eyeHeightRatio = defaults.double(forKey: "eyeHeightRatio")
+        keystone = defaults.double(forKey: "keystone")
+        smoothing = defaults.double(forKey: "smoothing")
+        leadTime = defaults.double(forKey: "leadTime")
+        loading = false
+        save(useDuoOptics, "useDuoOptics")
+        // Presets are tuned over time; re-apply the current one so saved slider values don't pin
+        // an older tuning. Custom mixes are left alone.
+        if let (p, b, sh) = style.preset {
+            applyingPreset = true
+            perspective = p; blur = b; shadow = sh
+            applyingPreset = false
+        }
+    }
+
+    private func applyPresetIfNeeded() {
+        guard !loading else { return }
+        if style != .custom { useDuoOptics = style == .duo }
+        guard let (p, b, s) = style.preset else { return }
+        applyingPreset = true
+        perspective = p
+        blur = b
+        shadow = s
+        applyingPreset = false
+    }
+
+    private func markCustom() {
+        guard !loading, !applyingPreset, style != .custom else { return }
+        style = .custom
+    }
+
+    private func save(_ value: Any, _ key: String) {
+        guard !loading else { return }
+        defaults.set(value, forKey: key)
+    }
+
+    private func changed() {
+        guard !loading else { return }
+        onChange?()
+    }
+}

@@ -22,6 +22,10 @@
   <img src="docs/hero.png" alt="Desktop as-is, then bending in Silk and Frost styles" width="100%">
 </p>
 
+<p align="center">
+  <img src="docs/onboarding.png" alt="OpenBend welcome screen" width="420">
+</p>
+
 Close the lid and the desktop doesn't just switch off. The picture stays standing where it was,
 the panel slides down over it like a pane of glass, and the further the glass pulls away from the
 content the more it softens. Open the lid and it snaps back with a soft click.
@@ -65,6 +69,9 @@ Use **Preview Bend** in the menu bar to see the effect without touching the lid.
 
 ## Styles
 
+**Duo** is the default: clear at the hinge, progressively softer toward the top edge, like the
+fold on a folding phone. Three more if you want a different feel:
+
 | Silk | Shade | Frost |
 | --- | --- | --- |
 | ![Silk](docs/silk.png) | ![Shade](docs/shade.png) | ![Frost](docs/frost.png) |
@@ -74,11 +81,17 @@ Perspective, Blur and Shadow are on sliders. Move one and the style becomes **Cu
 
 ## Settings
 
-- **Clears at**: the lid angle (default 90°) below which the bend begins and above which the
-  desktop snaps back.
+- **Start after closing**: downward travel from your current open position before bending begins (default 3°, range 1–15°). Open back near that starting point to clear it. The old fixed `clearAngle` preference is no longer used.
+- **Stays on below** and **Clears after resting**: stop lowering the lid above the stay-on angle (default 70°) and the effect relaxes away after the rest time (default 1.5 s), so you can lower the screen a little and keep working. Below that angle the effect holds however long the lid rests.
 - **Follow the lid**: turn off to drive the angle yourself with the Angle slider.
 - **Click when the desktop clears**, **Launch at login**, **Paused**.
 - **Esc** while the desktop is bending pauses OpenBend.
+
+The closing trigger learns your open posture. With the default 3° setting, starting at 100°
+triggers at 97°; starting at 125° triggers at 122°. The fold's reference stays fixed while active.
+Reopening 1° past that reference clears it and learns a fresh starting position. Resting above the stay-on angle also clears it and learns the resting position, so closing further needs the full travel again. A one-degree flicker at rest doesn't count as movement, and a slow close keeps producing new lows, so it never times out mid-motion. OpenBend only takes keyboard focus (for Esc) once the lid is below the stay-on angle, so adjusting the lid never swallows your typing. Pause/resume,
+wake, and switching input modes also relearn the current posture. Capture warms up on the first
+movement before activation and cools down after a quiet second.
 
 ## How it works
 
@@ -88,7 +101,7 @@ Perspective, Blur and Shadow are on sliders. Move one and the style becomes **Cu
 | **Live desktop** | ScreenCaptureKit streams the built-in display at up to 60 fps while the lid is moving and trickles at 10 fps otherwise. |
 | **Projection** | The desktop is frozen on the plane where the lid was when the bend began. Every panel pixel is cast from a fixed eye position onto that plane, so the bottom stays anchored at the hinge, the menu bar slips out of view first, and the picture stays standing while the panel moves over it. |
 | **Diffusion** | Blur grows with the gap between glass and content: clear at the hinge, soft at the top. A two-pass Gaussian in Metal, working at whatever resolution keeps it band-free, plus a frosted-glass treatment. |
-| **Tracker** | The sensor reports whole degrees. A tracker times the steps to estimate velocity and glides continuously inside each degree, so motion is smooth and only a few degrees behind the hinge on a fast close. |
+| **Tracker** | Original sensor timestamps reconstruct motion between whole-degree readings, including slow movement and reversals. Prediction is bounded to 0.75° of the sensor reading, and the filter keeps settling after motion stops. |
 | **Sound** | A short synthesized click, generated in memory. No audio files. |
 
 ### Tuning knobs
@@ -108,6 +121,8 @@ defaults write com.openbend.OpenBend leadTime -float 0.03        # motion lead t
 make               # release build → build/OpenBend.app
 make run           # build and launch
 make install       # copy to /Applications
+make trigger-test  # relative closing gesture and rearming checks
+make motion-test   # quantized sensor replay at 60/120 Hz
 make render-test   # render the shader offline to build/render-test-out/*.png
 make clean
 ```

@@ -1,5 +1,6 @@
 import Foundation
 import IOKit.hid
+import QuartzCore
 
 /// Reads the hinge angle from the lid angle sensor built into Apple silicon MacBooks.
 ///
@@ -9,15 +10,20 @@ import IOKit.hid
 /// 0 is closed, ~120-135 is fully open.
 final class LidAngleSensor {
     private(set) var isAvailable = false
-    /// Latest reading in degrees. Safe to read from any thread (the renderer reads it at draw time).
-    var angle: Double {
+    /// Angle and monotonic change time are read together, so render cadence cannot skew velocity.
+    struct Sample {
+        let angle: Double
+        let timestamp: TimeInterval
+    }
+    var sample: Sample {
         lock.lock(); defer { lock.unlock() }
         return latest
     }
-    private var latest: Double = 120
+    var angle: Double { sample.angle }
+    private var latest = Sample(angle: 120, timestamp: CACurrentMediaTime())
     private let lock = NSLock()
-    /// Called on the main thread whenever the angle changes.
-    var onUpdate: ((Double) -> Void)?
+    /// Called on the main thread with the original sensor timestamp whenever the angle changes.
+    var onUpdate: ((Sample) -> Void)?
 
     private var manager: IOHIDManager?
     private var device: IOHIDDevice?
@@ -44,7 +50,7 @@ final class LidAngleSensor {
             IOHIDDeviceClose(candidate, IOOptionBits(kIOHIDOptionsTypeNone))
             if let value {
                 device = candidate
-                latest = value
+                latest = Sample(angle: value, timestamp: CACurrentMediaTime())
                 isAvailable = true
                 break
             }
@@ -77,12 +83,13 @@ final class LidAngleSensor {
     private func poll() {
         guard let device, let value = Self.readAngle(from: device, into: &report) else { return }
         lock.lock()
-        let changed = value != latest
-        latest = value
+        let changed = value != latest.angle
+        let reading = Sample(angle: value, timestamp: CACurrentMediaTime())
+        if changed { latest = reading }
         lock.unlock()
         guard changed else { return }
         let callback = onUpdate
-        DispatchQueue.main.async { callback?(value) }
+        DispatchQueue.main.async { callback?(reading) }
     }
 
     private static func readAngle(from device: IOHIDDevice, into buffer: inout [UInt8]) -> Double? {
@@ -90,6 +97,6 @@ final class LidAngleSensor {
         let result = IOHIDDeviceGetReport(device, kIOHIDReportTypeFeature, 1, &buffer, &length)
         guard result == kIOReturnSuccess, length >= 3 else { return nil }
         let raw = UInt16(buffer[2]) << 8 | UInt16(buffer[1])
-        return Double(raw)
+        return raw <= 180 ? Double(raw) : nil
     }
 }

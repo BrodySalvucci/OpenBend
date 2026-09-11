@@ -1,6 +1,6 @@
 APP := build/OpenBend.app
 
-.PHONY: all build debug run install clean icon
+.PHONY: all build debug run install clean icon render-test trigger-test motion-test
 
 all: build
 
@@ -29,3 +29,13 @@ render-test:
 	@cp scripts/render-test.swift build/render-test-src/main.swift
 	@swiftc -O Sources/OpenBend/Shaders.swift Sources/OpenBend/BendMath.swift Sources/OpenBend/BendRenderer.swift build/render-test-src/main.swift -o build/render-test
 	@build/render-test build/render-test-out
+
+trigger-test:
+	@mkdir -p build
+	@swiftc -module-cache-path build/ModuleCache Sources/OpenBend/LidMotionTrigger.swift scripts/trigger-test.swift -o build/trigger-test
+	@build/trigger-test
+
+motion-test:
+	@mkdir -p build
+	@swiftc -module-cache-path build/ModuleCache Sources/OpenBend/LidMotionTracker.swift scripts/motion-tracker-test.swift -o build/motion-test
+	@build/motion-test

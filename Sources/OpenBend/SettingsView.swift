@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// View-local state. A class rather than @State so the app also builds with Command Line Tools,
 /// which ship without the SwiftUI macro plugin.
@@ -7,11 +8,33 @@ final class SettingsUIState {
     var launchAtLogin = LaunchAtLogin.isEnabled
 }
 
-private enum BendPalette {
+/// Colors used only inside artwork. Controls use the system accent so they match the Mac.
+enum BendArt {
     static let violet = Color(red: 0.56, green: 0.42, blue: 0.85)
     static let plum = Color(red: 0.22, green: 0.12, blue: 0.31)
     static let pink = Color(red: 0.90, green: 0.59, blue: 0.73)
+    static let night = Color(red: 0.10, green: 0.09, blue: 0.15)
+    static let heroGradient = LinearGradient(
+        colors: [Color(red: 0.19, green: 0.15, blue: 0.30), plum, night],
+        startPoint: .topLeading, endPoint: .bottomTrailing)
 }
+
+/// Grouped-form surfaces that follow the Mac's appearance, like System Settings.
+enum SettingsChrome {
+    static let groupFill = Color(nsColor: NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor.white.withAlphaComponent(0.055)
+            : NSColor.white.withAlphaComponent(0.72)
+    })
+    static let groupStroke = Color(nsColor: NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor.white.withAlphaComponent(0.09)
+            : NSColor.black.withAlphaComponent(0.08)
+    })
+    static let cornerRadius: CGFloat = 10
+}
+
+// MARK: - Settings
 
 @MainActor
 struct SettingsView: View {
@@ -20,245 +43,352 @@ struct SettingsView: View {
     @Bindable var ui: SettingsUIState
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 14) {
             header
-            HStack(alignment: .top, spacing: 20) {
-                VStack(alignment: .leading, spacing: 16) {
-                    hero
-                    styleSection
-                }
-                .frame(width: 328)
-                VStack(alignment: .leading, spacing: 16) {
-                    tuningSection
-                    lidSection
-                }
-                .frame(maxWidth: .infinity)
-            }
+            styleSection
+            lidSection
             generalSection
-            HStack(spacing: 6) {
-                Image(systemName: "escape")
-                Text("Press Esc while bending to pause.")
-                Spacer()
-                Text("Made for the MacBook hinge")
-            }
-            .font(.system(size: 10))
-            .foregroundStyle(.tertiary)
+            footer
         }
-        .padding(24)
-        .frame(width: 740)
-        .tint(BendPalette.violet)
+        .padding(.horizontal, 22)
+        .padding(.top, 28)      // clears the traffic lights under the transparent title bar
+        .padding(.bottom, 14)
+        .frame(width: 540)
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
-    private var header: some View {
-        HStack(alignment: .center, spacing: 12) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 11)
-                    .fill(LinearGradient(colors: [BendPalette.violet, BendPalette.plum], startPoint: .topLeading, endPoint: .bottomTrailing))
-                Image(systemName: "laptopcomputer")
-                    .font(.system(size: 22, weight: .medium))
-                    .foregroundStyle(.white)
-            }
-            .frame(width: 44, height: 44)
-            VStack(alignment: .leading, spacing: 3) {
-                Text("OpenBend").font(.system(size: 22, weight: .semibold, design: .rounded))
-                Text("A little magic in every close.")
-                    .font(.callout).foregroundStyle(.secondary)
-            }
-            Spacer()
-            TimelineView(.periodic(from: .now, by: 0.1)) { _ in statusBadge }
-        }
-    }
+    // MARK: Header
 
-    private var statusBadge: some View {
-        VStack(alignment: .trailing, spacing: 5) {
-            Group {
-                if !ScreenPermission.isGranted {
-                    Label("Screen Recording off", systemImage: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
-                } else if settings.isPaused {
-                    Label("Paused", systemImage: "pause.circle.fill").foregroundStyle(.secondary)
-                } else if controller.isVisible {
-                    Label("Bending", systemImage: "sparkle").foregroundStyle(BendPalette.violet)
-                } else if controller.isCapturing {
-                    Label("Ready", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
-                } else {
-                    Label(controller.captureError ?? "Starting…", systemImage: "circle.dotted")
+    private var header: some View {
+        HStack(spacing: 14) {
+            Image(nsImage: NSApp.applicationIconImage)
+                .resizable()
+                .interpolation(.high)
+                .frame(width: 52, height: 52)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("OpenBend")
+                    .font(.system(size: 20, weight: .semibold))
+                    .tracking(-0.3)
+                Text("Your desktop bends as you close the lid.")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 12)
+            TimelineView(.periodic(from: .now, by: 0.25)) { _ in
+                VStack(alignment: .trailing, spacing: 6) {
+                    StatusPill(status: status)
+                    Text(controller.sensor.isAvailable
+                         ? String(format: "Lid %.0f°", controller.sensorAngle)
+                         : "No lid sensor")
+                        .font(.system(size: 11).monospacedDigit())
                         .foregroundStyle(.secondary)
                 }
             }
-            .font(.system(size: 11, weight: .medium))
-            .padding(.horizontal, 9).padding(.vertical, 5)
-            .background(.primary.opacity(0.04), in: Capsule())
-            Text(controller.sensor.isAvailable ? String(format: "Lid %.0f°", controller.sensorAngle) : "Manual control available")
-                .font(.system(size: 10).monospacedDigit()).foregroundStyle(.secondary)
         }
-        .frame(maxWidth: 220, alignment: .trailing)
     }
 
-    private var hero: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("Meet Duo.").font(.system(size: 22, weight: .semibold, design: .rounded))
-                    Text("Clear at the hinge. Soft toward the edge.")
-                        .font(.system(size: 10)).foregroundStyle(.white.opacity(0.72))
-                }
-                Spacer(minLength: 0)
-                Image(systemName: "sparkles").font(.system(size: 19)).foregroundStyle(BendPalette.pink)
-            }
-            .padding(.horizontal, 18).padding(.top, 17)
-            FoldedDesktop(style: .duo)
-                .padding(.horizontal, 24)
-                .padding(.top, 4)
-                .frame(height: 108)
-            HStack(spacing: 5) {
-                Capsule().fill(BendPalette.pink.opacity(0.9)).frame(width: 14, height: 2)
-                Text("ANCHORED TO YOUR BOTTOM HINGE")
-                    .font(.system(size: 8, weight: .medium)).tracking(1.1)
-                    .foregroundStyle(.white.opacity(0.58))
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.bottom, 14)
-        }
-        .foregroundStyle(.white)
-        .background {
-            RoundedRectangle(cornerRadius: 16)
-                .fill(LinearGradient(colors: [Color(red: 0.19, green: 0.15, blue: 0.30), BendPalette.plum, Color(red: 0.10, green: 0.09, blue: 0.15)], startPoint: .topLeading, endPoint: .bottomTrailing))
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Duo: clear at the MacBook’s bottom hinge, progressively softer toward the top edge.")
+    private var status: AppStatus {
+        if !ScreenPermission.isGranted { return .needsPermission }
+        if settings.isPaused { return .paused }
+        if controller.isVisible { return .bending }
+        if controller.isCapturing { return .ready }
+        return .starting(controller.captureError)
     }
+
+    // MARK: Style
 
     private var styleSection: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            HStack {
-                sectionTitle("Choose your feel")
-                Spacer()
-                if settings.style == .custom {
-                    Label("Custom", systemImage: "slider.horizontal.3")
-                        .font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary)
+        SettingsSection("Style", accessory: AnyView(previewButton)) {
+            HStack(spacing: 10) {
+                ForEach([BendStyle.duo, .silk, .shade, .frost]) { style in
+                    StyleCard(style: style, selected: settings.style == style) {
+                        settings.style = style
+                    }
                 }
             }
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
-                ForEach([BendStyle.duo, .silk, .shade, .frost]) { style in
-                    StyleCard(style: style, selected: settings.style == style) { settings.style = style }
-                }
+            .padding(10)
+            SettingsDivider()
+            SliderRow("Perspective", value: $settings.perspective, range: 0...1, format: percent)
+            SettingsDivider()
+            SliderRow("Blur", value: $settings.blur, range: 0...1, format: percent)
+            SettingsDivider()
+            SliderRow("Shadow", value: $settings.shadow, range: 0...1, format: percent)
+        } caption: {
+            if settings.style == .custom {
+                Text("Custom mix. Pick a style above to go back to a preset.")
+            } else {
+                Text(settings.style.blurb)
             }
         }
     }
 
-    private var tuningSection: some View {
-        SettingsPanel {
-            VStack(alignment: .leading, spacing: 13) {
-                HStack {
-                    sectionTitle("Fine-tune")
-                    Spacer()
-                    Text(settings.style.title).font(.system(size: 10)).foregroundStyle(.secondary)
-                }
-                LabeledSlider(title: "Perspective", value: $settings.perspective, symbol: "perspective")
-                LabeledSlider(title: "Blur", value: $settings.blur, symbol: "drop.halffull")
-                LabeledSlider(title: "Shadow", value: $settings.shadow, symbol: "moon.fill")
-            }
+    private var previewButton: some View {
+        Button {
+            controller.runPreview()
+        } label: {
+            Label("Preview Bend", systemImage: "play.fill")
+                .font(.system(size: 11, weight: .medium))
         }
+        .controlSize(.small)
+        .disabled(settings.isPaused || !controller.isCapturing)
+        .help("Play a close-and-open without moving the lid.")
     }
+
+    // MARK: Lid
 
     private var lidSection: some View {
-        SettingsPanel {
-            VStack(alignment: .leading, spacing: 12) {
-                sectionTitle("Move with the lid")
-                HStack {
-                    Text("Clears at").font(.system(size: 11))
-                    Spacer()
-                    Text(String(format: "%.0f°", settings.clearAngle))
-                        .font(.system(size: 12, weight: .medium).monospacedDigit())
-                }
-                Slider(value: $settings.clearAngle, in: 40...115, step: 1)
-                    .accessibilityLabel("Clear angle")
-                    .accessibilityValue(String(format: "%.0f degrees", settings.clearAngle))
-                Text("Bends below this angle. Clears as you open.")
-                    .font(.system(size: 10)).foregroundStyle(.secondary)
-                Divider()
-                Toggle("Follow the lid", isOn: $settings.followLid)
-                    .toggleStyle(.switch).controlSize(.mini)
-                    .font(.system(size: 11))
+        SettingsSection("Lid") {
+            SliderRow("Starts after", value: $settings.activationTravel, range: 1...15, step: 1, format: degrees)
+            SettingsDivider()
+            SliderRow("Keeps bending below", value: $settings.stayOnBelow, range: 40...100, step: 1, format: degrees)
+            SettingsDivider()
+            SliderRow("Relaxes after", value: $settings.settleDelay, range: 0.5...3, step: 0.25, format: seconds)
+            SettingsDivider()
+            SettingsRow("Follow the lid",
+                        subtitle: controller.sensor.isAvailable ? nil : "No lid angle sensor on this Mac") {
+                Toggle("", isOn: $settings.followLid)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
                     .disabled(!controller.sensor.isAvailable)
-                if !settings.followLid || !controller.sensor.isAvailable {
-                    VStack(alignment: .leading, spacing: 7) {
-                        HStack {
-                            Text("Manual angle").font(.system(size: 11))
-                            Spacer()
-                            Text(String(format: "%.0f°", settings.manualAngle))
-                                .font(.system(size: 11).monospacedDigit()).foregroundStyle(.secondary)
-                        }
-                        Slider(value: $settings.manualAngle, in: 0...130, step: 1)
-                            .accessibilityLabel("Manual lid angle")
-                            .accessibilityValue(String(format: "%.0f degrees", settings.manualAngle))
-                    }
-                }
-                Button { controller.runPreview() } label: {
-                    Label("Preview Bend", systemImage: "play.fill")
-                        .font(.system(size: 11, weight: .medium))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 4)
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(settings.isPaused || !controller.isCapturing)
-                .help("Plays a close-and-open without touching the lid.")
-                Text("Try the full motion without moving your Mac.")
-                    .font(.system(size: 10)).foregroundStyle(.secondary)
             }
+            if !settings.followLid || !controller.sensor.isAvailable {
+                SettingsDivider()
+                SliderRow("Angle", value: $settings.manualAngle, range: 0...130, step: 1, format: degrees)
+            }
+        } caption: {
+            Text("The bend begins once the lid has come down this far. Stop above the stay-on angle and it relaxes away after the rest time, so you can keep working. Below that angle it holds.")
         }
     }
+
+    // MARK: General
 
     private var generalSection: some View {
-        SettingsPanel {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 18) {
-                    Toggle("Sound", isOn: $settings.soundEnabled)
-                        .help("Play a click when the desktop clears.")
-                    Divider().frame(height: 15)
-                    Toggle("Launch at login", isOn: Binding(
-                        get: { ui.launchAtLogin },
-                        set: { LaunchAtLogin.set($0); ui.launchAtLogin = LaunchAtLogin.isEnabled }
-                    ))
-                    Divider().frame(height: 15)
-                    Toggle("Pause effect", isOn: $settings.isPaused)
-                }
-                .toggleStyle(.switch).controlSize(.mini)
-                .font(.system(size: 11))
-                if !ScreenPermission.isGranted {
-                    Divider()
-                    HStack(spacing: 8) {
-                        Image(systemName: "rectangle.dashed.badge.record").foregroundStyle(.orange)
-                        Text("Allow Screen Recording to bring your desktop into the effect.")
-                            .font(.system(size: 10)).foregroundStyle(.secondary)
-                        Spacer(minLength: 0)
-                        Button("Open Settings") { ScreenPermission.openSystemSettings() }
-                        Button("Relaunch") { ScreenPermission.relaunch() }
+        SettingsSection("General") {
+            SettingsRow("Click when the desktop clears") {
+                Toggle("", isOn: $settings.soundEnabled)
+                    .labelsHidden().toggleStyle(.switch).controlSize(.small)
+            }
+            SettingsDivider()
+            SettingsRow("Launch at login") {
+                Toggle("", isOn: Binding(
+                    get: { ui.launchAtLogin },
+                    set: { LaunchAtLogin.set($0); ui.launchAtLogin = LaunchAtLogin.isEnabled }
+                ))
+                .labelsHidden().toggleStyle(.switch).controlSize(.small)
+            }
+            SettingsDivider()
+            SettingsRow("Pause OpenBend") {
+                Toggle("", isOn: $settings.isPaused)
+                    .labelsHidden().toggleStyle(.switch).controlSize(.small)
+            }
+            SettingsDivider()
+            TimelineView(.periodic(from: .now, by: 1)) { _ in
+                SettingsRow("Screen Recording", subtitle: "Needed to capture the desktop. Frames stay on this Mac.") {
+                    if ScreenPermission.isGranted {
+                        Label("Allowed", systemImage: "checkmark.circle.fill")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.green)
+                    } else {
+                        HStack(spacing: 10) {
+                            Label("Not allowed", systemImage: "exclamationmark.triangle.fill")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(.orange)
+                            Button("Open Settings…") { ScreenPermission.openSystemSettings() }
+                                .controlSize(.small)
+                        }
                     }
-                    .controlSize(.small)
                 }
             }
         }
     }
 
-    private func sectionTitle(_ title: String) -> some View {
-        Text(title).font(.system(size: 12, weight: .semibold))
+    // MARK: Footer
+
+    private var footer: some View {
+        HStack(spacing: 6) {
+            Text("OpenBend \(Self.version)")
+            Text("·")
+            Link("GitHub", destination: URL(string: "https://github.com/BrodySalvucci/OpenBend")!)
+            Spacer()
+            Label("Esc pauses while bending", systemImage: "escape")
+        }
+        .font(.system(size: 11))
+        .foregroundStyle(.tertiary)
+        .padding(.horizontal, 2)
+    }
+
+    private static var version: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
+    }
+
+    private func percent(_ value: Double) -> String { String(format: "%.0f%%", value * 100) }
+    private func degrees(_ value: Double) -> String { String(format: "%.0f°", value) }
+    private func seconds(_ value: Double) -> String { String(format: "%.2g s", value) }
+}
+
+// MARK: - Status
+
+enum AppStatus {
+    case needsPermission, paused, bending, ready, starting(String?)
+
+    var title: String {
+        switch self {
+        case .needsPermission: "Needs Screen Recording"
+        case .paused: "Paused"
+        case .bending: "Bending"
+        case .ready: "Ready"
+        case .starting(let error): error == nil ? "Starting…" : "Not capturing"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .needsPermission: .orange
+        case .paused: .secondary
+        case .bending: BendArt.violet
+        case .ready: .green
+        case .starting(let error): error == nil ? .secondary : .orange
+        }
     }
 }
 
-private struct SettingsPanel<Content: View>: View {
-    @ViewBuilder let content: Content
+struct StatusPill: View {
+    let status: AppStatus
 
     var body: some View {
-        content
-            .padding(15)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.primary.opacity(0.025), in: RoundedRectangle(cornerRadius: 13))
-            .overlay(RoundedRectangle(cornerRadius: 13).stroke(.primary.opacity(0.06), lineWidth: 1))
+        HStack(spacing: 6) {
+            Circle().fill(status.color).frame(width: 7, height: 7)
+            Text(status.title).font(.system(size: 11, weight: .medium))
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(SettingsChrome.groupFill, in: Capsule())
+        .overlay(Capsule().strokeBorder(SettingsChrome.groupStroke, lineWidth: 1))
+        .animation(.snappy(duration: 0.25), value: status.title)
+        .accessibilityLabel("Status: \(status.title)")
     }
 }
+
+// MARK: - Grouped form pieces
+
+struct SettingsSection<Content: View, Caption: View>: View {
+    let title: String
+    var accessory: AnyView?
+    @ViewBuilder let content: Content
+    @ViewBuilder let caption: Caption
+
+    init(_ title: String, accessory: AnyView? = nil,
+         @ViewBuilder content: () -> Content, @ViewBuilder caption: () -> Caption) {
+        self.title = title
+        self.accessory = accessory
+        self.content = content()
+        self.caption = caption()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .center) {
+                Text(title)
+                    .font(.system(size: 13, weight: .semibold))
+                    .padding(.leading, 2)
+                Spacer()
+                accessory
+            }
+            VStack(spacing: 0) { content }
+                .background(SettingsChrome.groupFill, in: RoundedRectangle(cornerRadius: SettingsChrome.cornerRadius, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: SettingsChrome.cornerRadius, style: .continuous)
+                    .strokeBorder(SettingsChrome.groupStroke, lineWidth: 1))
+            caption
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 2)
+        }
+    }
+}
+
+extension SettingsSection where Caption == EmptyView {
+    init(_ title: String, accessory: AnyView? = nil, @ViewBuilder content: () -> Content) {
+        self.init(title, accessory: accessory, content: content, caption: { EmptyView() })
+    }
+}
+
+struct SettingsDivider: View {
+    var body: some View {
+        Divider().padding(.leading, 14)
+    }
+}
+
+struct SettingsRow<Control: View>: View {
+    let title: String
+    var subtitle: String?
+    @ViewBuilder let control: Control
+
+    init(_ title: String, subtitle: String? = nil, @ViewBuilder control: () -> Control) {
+        self.title = title
+        self.subtitle = subtitle
+        self.control = control()
+    }
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.system(size: 13))
+                if let subtitle {
+                    Text(subtitle).font(.system(size: 11)).foregroundStyle(.secondary)
+                }
+            }
+            Spacer(minLength: 12)
+            control
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, subtitle == nil ? 7 : 6)
+    }
+}
+
+struct SliderRow: View {
+    let title: String
+    var subtitle: String?
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+    var step: Double?
+    let format: (Double) -> String
+
+    init(_ title: String, subtitle: String? = nil, value: Binding<Double>, range: ClosedRange<Double>,
+         step: Double? = nil, format: @escaping (Double) -> String) {
+        self.title = title
+        self.subtitle = subtitle
+        self._value = value
+        self.range = range
+        self.step = step
+        self.format = format
+    }
+
+    var body: some View {
+        SettingsRow(title, subtitle: subtitle) {
+            HStack(spacing: 10) {
+                Group {
+                    if let step {
+                        Slider(value: $value, in: range, step: step)
+                    } else {
+                        Slider(value: $value, in: range)
+                    }
+                }
+                .frame(width: 170)
+                .accessibilityLabel(title)
+                .accessibilityValue(format(value))
+                Text(format(value))
+                    .font(.system(size: 12).monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .frame(width: 42, alignment: .trailing)
+            }
+        }
+    }
+}
+
+// MARK: - Style cards
 
 private struct StyleCard: View {
     let style: BendStyle
@@ -267,35 +397,53 @@ private struct StyleCard: View {
 
     var body: some View {
         Button(action: action) {
-            VStack(alignment: .leading, spacing: 7) {
+            VStack(alignment: .leading, spacing: 8) {
                 FoldedDesktop(style: style)
-                    .padding(.horizontal, 12).padding(.top, 2)
-                    .frame(height: 49)
-                    .background(LinearGradient(colors: [BendPalette.plum.opacity(0.94), Color(red: 0.12, green: 0.12, blue: 0.19)], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 7))
-                    .accessibilityHidden(true)
-                HStack {
-                    Text(style.title).font(.system(size: 11, weight: .semibold))
-                    Spacer()
+                    .padding(.horizontal, 10)
+                    .padding(.top, 3)
+                    .frame(height: 50)
+                    .background(
+                        LinearGradient(colors: [BendArt.plum.opacity(0.94), BendArt.night],
+                                       startPoint: .topLeading, endPoint: .bottomTrailing),
+                        in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                HStack(spacing: 6) {
+                    Text(style.title).font(.system(size: 12, weight: .semibold))
+                    Spacer(minLength: 0)
                     Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                        .font(.system(size: 12))
-                        .foregroundStyle(selected ? BendPalette.violet : Color.secondary.opacity(0.3))
+                        .font(.system(size: 13))
+                        .foregroundStyle(selected ? Color.accentColor : Color.secondary.opacity(0.35))
                 }
             }
-            .padding(8)
-            .background(selected ? BendPalette.violet.opacity(0.08) : Color.primary.opacity(0.025), in: RoundedRectangle(cornerRadius: 11))
-            .overlay(RoundedRectangle(cornerRadius: 11)
-                .stroke(selected ? BendPalette.violet.opacity(0.85) : Color.primary.opacity(0.07), lineWidth: selected ? 1.5 : 1))
-            .contentShape(RoundedRectangle(cornerRadius: 11))
+            .padding(7)
+            .background(selected ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.035),
+                        in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(selected ? Color.accentColor : SettingsChrome.groupStroke, lineWidth: selected ? 1.5 : 1))
+            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .animation(.snappy(duration: 0.22), value: selected)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressableCardStyle())
         .help(style.blurb)
         .accessibilityLabel(style.title + ". " + style.blurb)
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 
-/// A small, illustrative desktop. The lower edge stays sharp and anchored; Duo softens upward.
-private struct FoldedDesktop: View {
+/// Instant press feedback without a hover model (which would need @State).
+struct PressableCardStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.975 : 1)
+            .opacity(configuration.isPressed ? 0.9 : 1)
+            .animation(.snappy(duration: 0.15), value: configuration.isPressed)
+    }
+}
+
+// MARK: - Artwork
+
+/// A small illustrative desktop on a tilted panel. The lower edge stays sharp and anchored;
+/// each style shows its own treatment toward the top.
+struct FoldedDesktop: View {
     let style: BendStyle
 
     var body: some View {
@@ -303,7 +451,7 @@ private struct FoldedDesktop: View {
             let width = geometry.size.width
             let height = geometry.size.height
             ZStack(alignment: .bottom) {
-                Ellipse().fill(BendPalette.pink.opacity(0.20))
+                Ellipse().fill(BendArt.pink.opacity(0.22))
                     .frame(width: width * 0.85, height: height * 0.15)
                     .blur(radius: 7).offset(y: 3)
                 ZStack {
@@ -316,7 +464,8 @@ private struct FoldedDesktop: View {
                 .clipShape(FoldedSurface())
                 .overlay(FoldedSurface().stroke(.white.opacity(0.22), lineWidth: 0.8))
                 .padding(.bottom, 7)
-                Capsule().fill(LinearGradient(colors: [.white.opacity(0.08), BendPalette.pink.opacity(0.80), .white.opacity(0.08)], startPoint: .leading, endPoint: .trailing))
+                Capsule().fill(LinearGradient(colors: [.white.opacity(0.08), BendArt.pink.opacity(0.80), .white.opacity(0.08)],
+                                              startPoint: .leading, endPoint: .trailing))
                     .frame(width: width * 0.88, height: 1.5)
                     .padding(.bottom, 6)
             }
@@ -326,7 +475,6 @@ private struct FoldedDesktop: View {
     }
 }
 
-/// Perspective is drawn directly, so native window snapshots preserve the artwork geometry.
 private struct FoldedSurface: Shape {
     func path(in rect: CGRect) -> Path {
         let w = rect.width, h = rect.height
@@ -352,14 +500,14 @@ private struct DesktopTiles: View {
         Canvas { context, size in
             let w = size.width, h = size.height
             context.fill(Path(CGRect(origin: .zero, size: size)), with: .linearGradient(
-                Gradient(colors: [Color(red: 0.20, green: 0.22, blue: 0.45), BendPalette.pink.opacity(0.78), BendPalette.plum]),
+                Gradient(colors: [Color(red: 0.20, green: 0.22, blue: 0.45), BendArt.pink.opacity(0.78), BendArt.plum]),
                 startPoint: .zero, endPoint: CGPoint(x: w, y: h)))
             var hill = Path()
             hill.move(to: CGPoint(x: 0, y: h))
             hill.addQuadCurve(to: CGPoint(x: w, y: h * 0.43), control: CGPoint(x: w * 0.45, y: h * 0.50))
             hill.addLine(to: CGPoint(x: w, y: h))
             hill.closeSubpath()
-            context.fill(hill, with: .color(BendPalette.plum.opacity(0.85)))
+            context.fill(hill, with: .color(BendArt.plum.opacity(0.85)))
             context.drawLayer { desktop in
                 if style == .frost { desktop.addFilter(.blur(radius: w * 0.011)) }
                 desktop.drawLayer { widgets in
@@ -369,7 +517,7 @@ private struct DesktopTiles: View {
                         CGRect(x: w * 0.51, y: h * 0.15, width: w * 0.13, height: h * 0.36),
                         CGRect(x: w * 0.68, y: h * 0.15, width: w * 0.13, height: h * 0.36),
                     ]
-                    let colors: [Color] = [.white.opacity(0.63), Color(red: 0.20, green: 0.42, blue: 0.81), BendPalette.pink]
+                    let colors: [Color] = [.white.opacity(0.63), Color(red: 0.20, green: 0.42, blue: 0.81), BendArt.pink]
                     for index in frames.indices {
                         widgets.fill(Path(roundedRect: frames[index], cornerRadius: w * 0.02), with: .color(colors[index]))
                     }
@@ -384,65 +532,6 @@ private struct DesktopTiles: View {
                     desktop.fill(Path(ellipseIn: mark), with: .color(.white.opacity(0.88)))
                 }
             }
-        }
-    }
-}
-
-private struct LabeledSlider: View {
-    let title: String
-    @Binding var value: Double
-    let symbol: String
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Label(title, systemImage: symbol)
-                .font(.system(size: 11)).frame(width: 99, alignment: .leading)
-                .foregroundStyle(.secondary)
-            Slider(value: $value, in: 0...1)
-                .accessibilityLabel(title)
-                .accessibilityValue(String(format: "%.0f percent", value * 100))
-            Text(String(format: "%.0f", value * 100))
-                .font(.system(size: 10).monospacedDigit())
-                .foregroundStyle(.secondary).frame(width: 23, alignment: .trailing)
-        }
-    }
-}
-
-@MainActor
-struct PermissionView: View {
-    let controller: BendController
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 12) {
-                Image(systemName: "rectangle.dashed.badge.record").font(.system(size: 34)).foregroundStyle(.blue)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Allow Screen Recording").font(.title3.weight(.semibold))
-                    Text("OpenBend draws a live copy of your desktop while the lid closes.")
-                        .foregroundStyle(.secondary)
-                }
-            }
-            VStack(alignment: .leading, spacing: 6) {
-                step(1, "Open System Settings → Privacy & Security → Screen Recording.")
-                step(2, "Turn on OpenBend.")
-                step(3, "Relaunch OpenBend when macOS asks.")
-            }
-            Text("Frames are processed on this Mac. Nothing is recorded, saved or uploaded.")
-                .font(.caption).foregroundStyle(.tertiary)
-            HStack {
-                Spacer()
-                Button("Open System Settings") { ScreenPermission.openSystemSettings() }
-                Button("Relaunch OpenBend") { ScreenPermission.relaunch() }.keyboardShortcut(.defaultAction)
-            }
-        }
-        .padding(22)
-        .frame(width: 440)
-    }
-
-    private func step(_ n: Int, _ text: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text("\(n).").monospacedDigit().foregroundStyle(.secondary)
-            Text(text)
         }
     }
 }

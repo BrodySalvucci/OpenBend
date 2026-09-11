@@ -11,3 +11,14 @@ First release.
 - Step tracker for smooth, low-latency motion from a whole-degree sensor.
 - Soft click when the desktop clears. Esc or the menu bar to pause. Launch at login.
 - Preview Bend, for seeing the effect without touching the lid.
+
+## Unreleased
+
+- Adaptive trigger: the bend starts after a few degrees of closing from wherever the lid was,
+  instead of at a fixed angle. Rest above the stay-on angle and it relaxes away so you can keep
+  working; below it, it holds.
+- Motion tracker rebuilt around the sensor's own timestamps, with replay tests.
+- Duo style, now the default: clear at the hinge, softer toward the edge.
+- Settings redesigned as a native grouped window; first-run onboarding flow.
+- OpenBend only takes keyboard focus once a close is committed, so lid adjustments never
+  swallow typing.

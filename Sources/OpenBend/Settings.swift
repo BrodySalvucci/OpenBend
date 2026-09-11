@@ -65,8 +65,13 @@ final class Settings {
     var perspective: Double { didSet { save(perspective, "perspective"); markCustom(); changed() } }
     var blur: Double { didSet { save(blur, "blur"); markCustom(); changed() } }
     var shadow: Double { didSet { save(shadow, "shadow"); markCustom(); changed() } }
-    /// Lid angle (degrees) above which the desktop clears and the overlay hides.
-    var clearAngle: Double { didSet { save(clearAngle, "clearAngle"); changed() } }
+    /// Downward travel (degrees) from the open position before the effect begins.
+    var activationTravel: Double { didSet { save(activationTravel, "activationTravel"); changed() } }
+    /// If the lid rests above this angle, the effect relaxes away after `settleDelay`.
+    /// Below it the effect holds, however long the lid rests.
+    var stayOnBelow: Double { didSet { save(stayOnBelow, "stayOnBelow"); changed() } }
+    /// Seconds the lid must rest before the effect relaxes away.
+    var settleDelay: Double { didSet { save(settleDelay, "settleDelay"); changed() } }
     /// True: follow the hinge sensor. False: use `manualAngle`.
     var followLid: Bool { didSet { save(followLid, "followLid"); changed() } }
     var manualAngle: Double { didSet { save(manualAngle, "manualAngle"); changed() } }
@@ -89,7 +94,7 @@ final class Settings {
         defaults.register(defaults: [
             "style": BendStyle.duo.rawValue,
             "perspective": 0.58, "blur": 0.85, "shadow": 0.28,
-            "clearAngle": 90.0, "followLid": true, "manualAngle": 45.0, "soundEnabled": true,
+            "activationTravel": 3.0, "stayOnBelow": 70.0, "settleDelay": 1.5, "followLid": true, "manualAngle": 45.0, "soundEnabled": true,
             "eyeHeightRatio": 0.5, "keystone": 0.4, "smoothing": 0.03, "leadTime": 0.03,
         ])
         let savedStyle = BendStyle(rawValue: defaults.string(forKey: "style") ?? "") ?? .duo
@@ -98,7 +103,12 @@ final class Settings {
         perspective = defaults.double(forKey: "perspective")
         blur = defaults.double(forKey: "blur")
         shadow = defaults.double(forKey: "shadow")
-        clearAngle = defaults.double(forKey: "clearAngle")
+        let savedActivationTravel = defaults.double(forKey: "activationTravel")
+        activationTravel = savedActivationTravel.isFinite ? min(15, max(1, savedActivationTravel)) : 3
+        let savedStayOnBelow = defaults.double(forKey: "stayOnBelow")
+        stayOnBelow = savedStayOnBelow.isFinite ? min(100, max(30, savedStayOnBelow)) : 70
+        let savedSettleDelay = defaults.double(forKey: "settleDelay")
+        settleDelay = savedSettleDelay.isFinite ? min(5, max(0.5, savedSettleDelay)) : 1.5
         followLid = defaults.bool(forKey: "followLid")
         manualAngle = defaults.double(forKey: "manualAngle")
         soundEnabled = defaults.bool(forKey: "soundEnabled")

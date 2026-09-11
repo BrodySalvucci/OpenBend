@@ -21,14 +21,15 @@ final class BendController {
     private var displayedTilt = 0.0
     private var lastTick: CFTimeInterval = 0
 
-    // Lid tracker. The sensor reports whole degrees, so we time the steps to estimate velocity
-    // and glide continuously inside each degree instead of jumping when the reading changes.
-    private var trackedRaw = 0.0
-    private var lastStepTime: CFTimeInterval = 0
-    private var stepVelocity = 0.0      // degrees per second, signed
-    private var stepHistory: [(time: CFTimeInterval, angle: Double)] = []
-    private var position = 0.0          // best estimate of the true angle
-    private var displayedAngle = 0.0
+    private var motionTracker = LidMotionTracker()
+    private var motionTrigger = LidMotionTrigger()
+    private var projectionReference = 90.0
+    private var needsRearm = true
+    private enum InputMode { case sensor, manual, preview }
+    private var inputMode: InputMode?
+    private var lastInputAngle: Double?
+    private var lastMovementAt: CFTimeInterval = 0
+    private var idleCaptureTimer: Timer?
 
     private(set) var sensorAngle: Double = 120
     private(set) var isCapturing = false
@@ -42,7 +43,7 @@ final class BendController {
     /// Fired when visibility, pause, capture or permission state changes (menu bar refresh).
     var onStateChange: (() -> Void)?
 
-    enum HideReason { case lidOpened, paused, other }
+    enum HideReason { case lidOpened, settled, paused, other }
 
     init(settings: Settings) {
         self.settings = settings
@@ -53,9 +54,12 @@ final class BendController {
 
     func start() {
         setupOverlay()
-        sensor.onUpdate = { [weak self] angle in
+        sensor.onUpdate = { [weak self] sample in
             guard let self else { return }
-            sensorAngle = angle
+            sensorAngle = sample.angle
+            if isFollowingSensor, inputMode == .sensor, !needsRearm {
+                motionTracker.observe(angle: sample.angle, at: sample.timestamp)
+            }
             evaluate()
         }
         sensor.start(hertz: 120)
@@ -74,6 +78,8 @@ final class BendController {
             guard let self else { return }
             isCapturing = false
             renderer?.reset()
+            needsRearm = true
+            hideReason = .other
             if isVisible { finishHide() }
             onStateChange?()
             if !settings.isPaused { scheduleCaptureRestart(after: 1.5) }
@@ -149,22 +155,68 @@ final class BendController {
 
     var isFollowingSensor: Bool { settings.followLid && sensor.isAvailable && preview == nil }
 
+    /// Follow the same relative gesture in sensor and manual modes. Scripted preview gets its
+    /// own temporary baseline, then returning to the sensor learns the current physical posture.
+    private func synchronizeInput(at now: CFTimeInterval) {
+        guard !settings.isPaused else { needsRearm = true; return }
+        let mode: InputMode = preview != nil ? .preview : (isFollowingSensor ? .sensor : .manual)
+        let sample = mode == .sensor ? sensor.sample : LidAngleSensor.Sample(angle: effectiveAngle, timestamp: now)
+        if needsRearm || mode != inputMode {
+            motionTrigger.reset(to: sample.angle)
+            motionTracker.reset(to: sample.angle, at: now)
+            inputMode = mode
+            lastInputAngle = sample.angle
+            lastMovementAt = now
+            needsRearm = false
+        }
+        if sample.angle != lastInputAngle {
+            lastMovementAt = now
+            lastInputAngle = sample.angle
+        }
+        motionTracker.observe(angle: sample.angle, at: sample.timestamp)
+        motionTrigger.update(angle: sample.angle, activationTravel: settings.activationTravel,
+                             at: now, holdDelay: settings.settleDelay, stayOnBelow: settings.stayOnBelow)
+    }
+
     func evaluate() {
-        let angle = effectiveAngle
+        let now = CACurrentMediaTime()
+        synchronizeInput(at: now)
         let ready = isCapturing && (renderer?.hasFrame ?? false)
-        let wantVisible = !settings.isPaused && ready && angle < settings.clearAngle
+        let wantVisible = !settings.isPaused && ready && motionTrigger.isActive
 
         if wantVisible, !isVisible || isHiding {
-            show()
+            show(referenceAngle: motionTrigger.referenceAngle)
         } else if !wantVisible, isVisible, !isHiding {
-            beginHide(reason: settings.isPaused ? .paused : (angle >= settings.clearAngle ? .lidOpened : .other))
+            let reason: HideReason
+            if settings.isPaused {
+                reason = .paused
+            } else if motionTrigger.isActive {
+                reason = .other
+            } else {
+                reason = motionTrigger.lastRelease == .settled ? .settled : .lidOpened
+            }
+            beginHide(reason: reason)
         }
-        updateCaptureRate(for: angle)
+        claimFocusIfCommitted()
+        updateCaptureRate(at: now)
+    }
+
+    /// Keyboard focus lets Esc pause mid-bend, but taking it while someone is only adjusting the
+    /// lid would swallow their typing. So focus is claimed only once the lid is below the
+    /// stay-on angle, where the effect holds and nobody is working.
+    private func claimFocusIfCommitted() {
+        guard isVisible, !isHiding, previousApp == nil, isFollowingSensor,
+              sensorAngle < settings.stayOnBelow, let window else { return }
+        previousApp = NSWorkspace.shared.frontmostApplication
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
     }
 
     private func settingsChanged() {
         if settings.isPaused {
-            if isVisible { beginHide(reason: .paused) }
+            needsRearm = true
+            hideReason = .paused
+            if isVisible { finishHide() }
             stopCapture()
         } else if !isCapturing, captureTask == nil, ScreenPermission.isGranted {
             startCapture()
@@ -173,22 +225,17 @@ final class BendController {
         onStateChange?()
     }
 
-    private func show() {
+    private func show(referenceAngle: Double) {
         guard let window, let metalView else { return }
+        projectionReference = referenceAngle
         isHiding = false
+        // Closing again mid-relax continues from the current tilt instead of jumping flat.
         guard !isVisible else { return }
         displayedTilt = 0
         lastTick = CACurrentMediaTime()
-        resetTracker(to: effectiveAngle, at: lastTick)
         isVisible = true
-        if isFollowingSensor {
-            // Take key focus so Esc can pause. We hand focus back when the desktop clears.
-            previousApp = NSWorkspace.shared.frontmostApplication
-            NSApp.activate(ignoringOtherApps: true)
-            window.makeKeyAndOrderFront(nil)
-        } else {
-            window.orderFrontRegardless()
-        }
+        // Shown without focus; claimFocusIfCommitted() takes it once the close is committed.
+        window.orderFrontRegardless()
         metalView.isPaused = false
         onStateChange?()
     }
@@ -206,90 +253,46 @@ final class BendController {
         isVisible = false
         isHiding = false
         displayedTilt = 0
-        stepVelocity = 0
         if hideReason == .lidOpened, settings.soundEnabled { click.play() }
         if let previousApp, previousApp.processIdentifier != getpid() {
             previousApp.activate()
         }
         previousApp = nil
+        updateCaptureRate(at: CACurrentMediaTime())
         onStateChange?()
     }
-
-    private func resetTracker(to raw: Double, at now: CFTimeInterval) {
-        trackedRaw = raw
-        lastStepTime = now
-        stepVelocity = 0
-        stepHistory = [(now, raw)]
-        position = raw
-        displayedAngle = raw
-    }
-
-    /// Turns the stepping sensor reading into a smooth, low-latency angle.
-    private func trackAngle(raw: Double, now: CFTimeInterval, dt: Double) -> Double {
-        if raw != trackedRaw {
-            let direction: Double = raw > trackedRaw ? 1 : -1
-            // Velocity over the last ~80 ms of steps, so 60 Hz frame sampling of a 120 Hz sensor
-            // doesn't alias into a frame-to-frame wobble.
-            stepHistory.append((now, raw))
-            stepHistory.removeAll { now - $0.time > 0.12 }
-            let reference = stepHistory.first { now - $0.time >= 0.06 } ?? stepHistory.first!
-            let span = now - reference.time
-            let measured = span > 0.02 ? (raw - reference.angle) / span : (raw - trackedRaw) / max(now - lastStepTime, 0.002)
-            stepVelocity = measured
-            trackedRaw = raw
-            lastStepTime = now
-            // The truth just crossed into this degree at the edge it came from; keep continuity
-            // when we're close, snap only if the estimate was clearly off.
-            let edge = raw - 0.5 * direction
-            position = min(max(position, raw - Self.trackerSlack), raw + Self.trackerSlack)
-            if abs(position - edge) > Self.trackerSlack { position = edge }
-        } else {
-            // No new step. Once one is overdue the lid is slowing or stopped: bleed velocity off.
-            let expected = 1 / max(abs(stepVelocity), 1)
-            if now - lastStepTime > expected * 1.5 + 0.01 { stepVelocity *= exp(-dt / 0.03) }
-            if abs(stepVelocity) < 2 { stepVelocity = 0; stepHistory = [(now, trackedRaw)] }
-        }
-        position += stepVelocity * dt
-        position = min(max(position, trackedRaw - Self.trackerSlack), trackedRaw + Self.trackerSlack)
-
-        // A short lead cancels part of the render latency, bounded by the slack so a lid that stops
-        // dead leaves us at most a degree or so ahead. The display only ever moves in the lid's
-        // direction and holds still when the lid does, so there is never a backward blip.
-        var target = position + stepVelocity * max(settings.leadTime, 0)
-        target = min(max(target, trackedRaw - Self.trackerSlack), trackedRaw + Self.trackerSlack)
-        let next = displayedAngle + (target - displayedAngle) * (1 - exp(-dt / max(settings.smoothing, 0.004)))
-        if stepVelocity < 0 {
-            displayedAngle = min(displayedAngle, next)
-        } else if stepVelocity > 0 {
-            displayedAngle = max(displayedAngle, next)
-        }
-        return displayedAngle
-    }
-
-    /// How far the estimate may sit from the whole-degree reading (the reading itself is ±0.5°).
-    private static let trackerSlack = 1.5
 
     /// Called by the renderer once per frame.
     private func frameUniforms() -> BendUniforms {
         let now = CACurrentMediaTime()
+        evaluate()
         let dt = min(max(now - lastTick, 0.001), 1.0 / 20.0)
         lastTick = now
 
         let eye = BendMath.eye(perspective: settings.perspective, heightRatio: settings.eyeHeightRatio)
-        let maxTilt = max(settings.clearAngle - BendMath.minimumAngle(eye: eye), 1)
-        let angle = trackAngle(raw: effectiveAngle, now: now, dt: dt)
+        let maxTilt = max(projectionReference - BendMath.minimumAngle(eye: eye), 1)
+        // The preview is already a continuous curve. Quantized physical/manual input needs
+        // reconstruction using sensor change times, independently of display frame rate.
+        let angle = preview != nil ? effectiveAngle : motionTracker.value(
+            at: now, smoothing: settings.smoothing, leadTime: settings.leadTime)
 
         if isHiding {
-            // Snap clear: collapse whatever tilt is left in a few frames, then hide.
-            displayedTilt *= exp(-dt / 0.02)
+            // Reopening snaps clear in a few frames. Settling relaxes away over about half a
+            // second, so it reads as the glass easing back onto the content.
+            displayedTilt *= exp(-dt / (hideReason == .settled ? 0.14 : 0.02))
             if displayedTilt < 0.2 {
-                DispatchQueue.main.async { [weak self] in self?.finishHide() }
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, isHiding else { return }
+                    finishHide()
+                }
             }
         } else {
-            displayedTilt = min(max(settings.clearAngle - angle, 0), maxTilt)
+            let targetTilt = min(max(projectionReference - angle, 0), maxTilt)
+            // Also ease the onset if a fast sensor sample crossed more than the trigger distance.
+            displayedTilt += (targetTilt - displayedTilt) * (1 - exp(-dt / 0.025))
         }
 
-        return BendMath.uniforms(tilt: displayedTilt, clearAngle: settings.clearAngle, eye: eye,
+        return BendMath.uniforms(tilt: displayedTilt, clearAngle: projectionReference, eye: eye,
                                  blur: settings.blur, shadow: settings.shadow, keystone: settings.keystone,
                                  duo: settings.useDuoOptics)
     }
@@ -306,6 +309,7 @@ final class BendController {
             do {
                 try await capturer.start(displayID: displayID, scale: scale, framesPerSecond: fps)
                 isCapturing = true
+                needsRearm = true
                 captureError = nil
             } catch {
                 isCapturing = false
@@ -320,6 +324,8 @@ final class BendController {
     }
 
     private func stopCapture() {
+        idleCaptureTimer?.invalidate()
+        idleCaptureTimer = nil
         captureTask?.cancel()
         captureTask = nil
         isCapturing = false
@@ -328,6 +334,7 @@ final class BendController {
     }
 
     private func restartCapture() {
+        needsRearm = true
         guard !settings.isPaused, ScreenPermission.isGranted else { return }
         Task { [weak self] in
             guard let self else { return }
@@ -345,13 +352,26 @@ final class BendController {
         }
     }
 
-    private func updateCaptureRate(for angle: Double) {
-        // Full rate while bending or just above the clear angle; trickle otherwise.
-        let fast = !isFollowingSensor || angle < settings.clearAngle + 12
-        guard fast != wantsFastCapture else { return }
+    private func updateCaptureRate(at now: CFTimeInterval) {
+        // Warm capture on the first movement, before the relative trigger is reached. Avoid a
+        // stream reconfiguration in the first visible frame; cool down only after motion stops.
+        let fast = preview != nil || motionTrigger.isActive || isVisible || now - lastMovementAt < 1.0
         wantsFastCapture = fast
-        guard isCapturing else { return }
-        Task { await capturer.setFrameRate(fast ? 60 : 10) }
+        let desiredRate = fast ? 60 : 10
+        // Capture may have started asynchronously with an earlier idle rate. Reconcile the
+        // actual stream rate too, rather than relying only on changes in our desired state.
+        if isCapturing, capturer.framesPerSecond != desiredRate {
+            Task { await capturer.setFrameRate(desiredRate) }
+        }
+        if fast, !isVisible, !motionTrigger.isActive, preview == nil, !settings.isPaused, idleCaptureTimer == nil {
+            idleCaptureTimer = Timer.scheduledTimer(withTimeInterval: max(0.05, 1.05 - (now - lastMovementAt)), repeats: false) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.idleCaptureTimer = nil
+                    self.updateCaptureRate(at: CACurrentMediaTime())
+                }
+            }
+        }
     }
 
     // MARK: Preview
@@ -359,7 +379,7 @@ final class BendController {
     /// Plays a short scripted close-and-open so the effect can be seen without touching the lid.
     func runPreview() {
         guard !settings.isPaused, isCapturing else { return }
-        preview = PreviewRun(start: CACurrentMediaTime(), clearAngle: settings.clearAngle)
+        preview = PreviewRun(start: CACurrentMediaTime(), startAngle: 100)
         previewTimer?.invalidate()
         previewTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { [weak self] timer in
             MainActor.assumeIsolated {
@@ -376,7 +396,7 @@ final class BendController {
 
     struct PreviewRun {
         let start: CFTimeInterval
-        let clearAngle: Double
+        let startAngle: Double
         private let closeDuration = 1.6
         private let hold = 0.7
         private let openDuration = 0.9
@@ -386,14 +406,14 @@ final class BendController {
             let low = 14.0
             func ease(_ x: Double) -> Double { x < 0.5 ? 4 * x * x * x : 1 - pow(-2 * x + 2, 3) / 2 }
             if t < closeDuration {
-                return clearAngle + (low - clearAngle) * ease(t / closeDuration)
+                return startAngle + (low - startAngle) * ease(t / closeDuration)
             } else if t < closeDuration + hold {
                 return low
             } else if t < closeDuration + hold + openDuration {
                 let x = (t - closeDuration - hold) / openDuration
-                return low + (clearAngle + 4 - low) * ease(x)
+                return low + (startAngle + 4 - low) * ease(x)
             }
-            return clearAngle + 4
+            return startAngle + 4
         }
 
         func isFinished(at now: CFTimeInterval) -> Bool {

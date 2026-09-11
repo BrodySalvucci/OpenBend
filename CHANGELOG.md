@@ -12,7 +12,7 @@ First release.
 - Soft click when the desktop clears. Esc or the menu bar to pause. Launch at login.
 - Preview Bend, for seeing the effect without touching the lid.
 
-## Unreleased
+## 0.2.0
 
 - Adaptive trigger: the bend starts after a few degrees of closing from wherever the lid was,
   instead of at a fixed angle. Rest above the stay-on angle and it relaxes away so you can keep

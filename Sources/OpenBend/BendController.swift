@@ -81,10 +81,10 @@ final class BendController {
 
         let center = NSWorkspace.shared.notificationCenter
         center.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.restartCapture() }
+            MainActor.assumeIsolated { self?.restartCapture() }
         }
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.screensChanged() }
+            MainActor.assumeIsolated { self?.screensChanged() }
         }
 
         if ScreenPermission.isGranted {
@@ -362,7 +362,7 @@ final class BendController {
         preview = PreviewRun(start: CACurrentMediaTime(), clearAngle: settings.clearAngle)
         previewTimer?.invalidate()
         previewTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { [weak self] timer in
-            Task { @MainActor in
+            MainActor.assumeIsolated {
                 guard let self, let preview = self.preview else { timer.invalidate(); return }
                 if preview.isFinished(at: CACurrentMediaTime()) {
                     self.preview = nil

@@ -56,7 +56,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         permissionPoll?.invalidate()
         permissionPoll = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] timer in
-            Task { @MainActor in
+            MainActor.assumeIsolated {
                 guard let self else { timer.invalidate(); return }
                 self.controller.permissionMayHaveChanged()
                 if self.controller.isCapturing {

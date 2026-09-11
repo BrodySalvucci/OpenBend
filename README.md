@@ -32,8 +32,13 @@ saved or uploaded.
 ## Install
 
 **Download**: grab `OpenBend.zip` from the [latest release](https://github.com/BrodySalvucci/OpenBend/releases/latest),
-unzip, and drag OpenBend to Applications. The build is ad-hoc signed, so on first open
-right-click it and choose **Open**.
+unzip, and drag OpenBend to Applications. The build isn't notarized, so macOS blocks the first
+open. Go to System Settings → Privacy & Security and click **Open Anyway**, or clear the
+quarantine flag yourself:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/OpenBend.app
+```
 
 **Or build it yourself** (only the Xcode Command Line Tools are needed):
 

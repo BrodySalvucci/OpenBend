@@ -13,6 +13,7 @@ private enum BendPalette {
     static let pink = Color(red: 0.90, green: 0.59, blue: 0.73)
 }
 
+@MainActor
 struct SettingsView: View {
     @Bindable var settings: Settings
     let controller: BendController
@@ -407,6 +408,7 @@ private struct LabeledSlider: View {
     }
 }
 
+@MainActor
 struct PermissionView: View {
     let controller: BendController
 

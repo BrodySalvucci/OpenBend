@@ -53,7 +53,7 @@ struct SettingsView: View {
         .padding(.horizontal, 22)
         .padding(.top, 28)      // clears the traffic lights under the transparent title bar
         .padding(.bottom, 14)
-        .frame(width: 540)
+        .frame(width: 600)
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
@@ -101,7 +101,7 @@ struct SettingsView: View {
     private var styleSection: some View {
         SettingsSection("Style", accessory: AnyView(previewButton)) {
             HStack(spacing: 10) {
-                ForEach([BendStyle.duo, .silk, .shade, .frost]) { style in
+                ForEach([BendStyle.duo, .trueDuo, .silk, .shade, .frost]) { style in
                     StyleCard(style: style, selected: settings.style == style) {
                         settings.style = style
                     }
@@ -442,7 +442,8 @@ struct PressableCardStyle: ButtonStyle {
 // MARK: - Artwork
 
 /// A small illustrative desktop on a tilted panel. The lower edge stays sharp and anchored;
-/// each style shows its own treatment toward the top.
+/// each style shows its own treatment toward the top. True Duo shows the same panel with the
+/// picture dissolving into black past the desktop's edges.
 struct FoldedDesktop: View {
     let style: BendStyle
 
@@ -450,6 +451,7 @@ struct FoldedDesktop: View {
         GeometryReader { geometry in
             let width = geometry.size.width
             let height = geometry.size.height
+            let surface = FoldedSurface()
             ZStack(alignment: .bottom) {
                 Ellipse().fill(BendArt.pink.opacity(0.22))
                     .frame(width: width * 0.85, height: height * 0.15)
@@ -460,9 +462,17 @@ struct FoldedDesktop: View {
                         LinearGradient(colors: [.black.opacity(0.65), .clear], startPoint: .top, endPoint: .bottom)
                     }
                     if style == .frost { Color.white.opacity(0.13) }
+                    if style == .trueDuo {
+                        LinearGradient(colors: [.black, .black.opacity(0)],
+                                       startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.62))
+                        LinearGradient(colors: [.black.opacity(0.9), .black.opacity(0)],
+                                       startPoint: .leading, endPoint: UnitPoint(x: 0.22, y: 0.5))
+                        LinearGradient(colors: [.black.opacity(0.9), .black.opacity(0)],
+                                       startPoint: .trailing, endPoint: UnitPoint(x: 0.78, y: 0.5))
+                    }
                 }
-                .clipShape(FoldedSurface())
-                .overlay(FoldedSurface().stroke(.white.opacity(0.22), lineWidth: 0.8))
+                .clipShape(surface)
+                .overlay(surface.stroke(.white.opacity(0.22), lineWidth: 0.8))
                 .padding(.bottom, 7)
                 Capsule().fill(LinearGradient(colors: [.white.opacity(0.08), BendArt.pink.opacity(0.80), .white.opacity(0.08)],
                                               startPoint: .leading, endPoint: .trailing))
@@ -511,7 +521,7 @@ private struct DesktopTiles: View {
             context.drawLayer { desktop in
                 if style == .frost { desktop.addFilter(.blur(radius: w * 0.011)) }
                 desktop.drawLayer { widgets in
-                    if style == .duo { widgets.addFilter(.blur(radius: w * 0.023)) }
+                    if style == .duo || style == .trueDuo { widgets.addFilter(.blur(radius: w * 0.023)) }
                     let frames = [
                         CGRect(x: w * 0.19, y: h * 0.15, width: w * 0.28, height: h * 0.36),
                         CGRect(x: w * 0.51, y: h * 0.15, width: w * 0.13, height: h * 0.36),

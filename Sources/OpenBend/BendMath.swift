@@ -1,6 +1,26 @@
 import Foundation
 import simd
 
+/// Which spatial model the shader draws. Carried in `BendUniforms.p3.y`.
+enum BendOptics: String, CaseIterable {
+    /// The whole panel is a pane of glass sliding over the held desktop (Silk, Shade, Frost).
+    case glass
+    /// Glass optics with a clear contact zone at the MacBook hinge and a diffusion pyramid (Duo).
+    case duo
+    /// The desktop is the screen itself, left standing while the lid falls in front of it.
+    /// Duo's cast, but fitted to the panel rather than cropped by it, so the whole picture
+    /// keeps its height and the sides give way to black (True Duo).
+    case trueDuo
+
+    var shaderMode: Float {
+        switch self {
+        case .glass: 0
+        case .duo: 1
+        case .trueDuo: 2
+        }
+    }
+}
+
 /// Per-frame shader parameters. Four float4s so the Swift and Metal layouts trivially agree.
 struct BendUniforms {
     /// (physical lid angle, reference angle, eye distance, eye height) — radians and screen-height units
@@ -9,7 +29,7 @@ struct BendUniforms {
     var p1: SIMD4<Float>
     /// (blur 0..1, shadow 0..1, visibility 0..1, ramp 0..1 — how far into the travel we are)
     var p2: SIMD4<Float>
-    /// (keystone 0..1, Duo optics 0/1, unused, unused)
+    /// (keystone 0..1, optics 0 glass / 1 Duo / 2 True Duo, unused, unused)
     var p3: SIMD4<Float>
 
     static let identity = BendUniforms(p0: SIMD4(.pi / 2, .pi / 2, 4, 2), p1: .zero, p2: SIMD4(0, 0, 1, 0), p3: SIMD4(0.4, 0, 0, 0))
@@ -41,6 +61,11 @@ enum BendMath {
         atan2(eye.height, eye.distance) * 180 / .pi + 2
     }
 
+    /// How far (degrees) the lid can close past `clearAngle` before there is nothing left to draw.
+    static func maximumTilt(clearAngle: Double, eye: Eye) -> Double {
+        max(clearAngle - minimumAngle(eye: eye), 1)
+    }
+
     /// How squarely the eye sees the physical screen: 1 head-on, 0 edge-on.
     static func viewCosine(angle: Double, eye: Eye) -> Double {
         let a = angle * .pi / 180
@@ -55,9 +80,8 @@ enum BendMath {
     }
 
     /// Build uniforms for a lid that has closed `tilt` degrees past `clearAngle`.
-    static func uniforms(tilt: Double, clearAngle: Double, eye: Eye, blur: Double, shadow: Double, keystone: Double = 0.4, duo: Bool = false) -> BendUniforms {
-        let minAngle = minimumAngle(eye: eye)
-        let maxTilt = max(clearAngle - minAngle, 1)
+    static func uniforms(tilt: Double, clearAngle: Double, eye: Eye, blur: Double, shadow: Double, keystone: Double = 0.4, optics: BendOptics = .glass) -> BendUniforms {
+        let maxTilt = maximumTilt(clearAngle: clearAngle, eye: eye)
         let t = min(max(tilt, 0), maxTilt)
         let angle = clearAngle - t
 
@@ -70,7 +94,7 @@ enum BendMath {
             p0: SIMD4(Float(angle * .pi / 180), Float(clearAngle * .pi / 180), Float(eye.distance), Float(eye.height)),
             p1: .zero,
             p2: SIMD4(Float(blur * ramp), Float(shadow * ramp), Float(visibility), Float(ramp)),
-            p3: SIMD4(Float(min(max(keystone, 0), 1)), duo ? 1 : 0, 0, 0)
+            p3: SIMD4(Float(min(max(keystone, 0), 1)), optics.shaderMode, 0, 0)
         )
     }
 }

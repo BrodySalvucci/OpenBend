@@ -187,32 +187,32 @@ struct RenderCase {
     var blur: Double = 0.85
     var shadow: Double = 0.28
     var keystone: Double = 0.4
-    var duo: Bool = true
+    var optics: BendOptics = .duo
     var uniforms: BendUniforms {
         BendMath.uniforms(tilt: tilt, clearAngle: clearAngle,
                           eye: BendMath.eye(perspective: perspective, heightRatio: 0.5),
-                          blur: blur, shadow: shadow, keystone: keystone, duo: duo)
+                          blur: blur, shadow: shadow, keystone: keystone, optics: optics)
     }
 }
 // Identity is a pixel-level promise, including at unusual clear angles.
 var maximumIdentityError = 0
 for clearAngle in [40.0, 90.0, 115.0] {
-    for duo in [false, true] {
-        let u = RenderCase(name: "identity", tilt: 0, clearAngle: clearAngle, duo: duo).uniforms
+    for optics in BendOptics.allCases {
+        let u = RenderCase(name: "identity", tilt: 0, clearAngle: clearAngle, optics: optics).uniforms
         try validate(u)
         let actual = try render(u, with: renderer)
         let error = zip(sourceBytes, actual).reduce(0) { max($0, abs(Int($1.0) - Int($1.1))) }
         maximumIdentityError = max(maximumIdentityError, error)
         // One 8-bit level allows texture-filter rounding; any blur or shading fails.
-        try require(error <= 1, "Identity differs by \(error) at clear angle \(clearAngle), Duo \(duo)")
+        try require(error <= 1, "Identity differs by \(error) at clear angle \(clearAngle), optics \(optics)")
     }
 }
 var validatedUniformSets = 0
 for clearAngle in [40.0, 90.0, 115.0] {
     for tilt in [-5.0, 0, 8, 20, 35, 50, 90, 180] {
         for perspective in [0.0, 0.5, 1] {
-            for duo in [false, true] {
-                try validate(RenderCase(name: "bounds", tilt: tilt, clearAngle: clearAngle, perspective: perspective, duo: duo).uniforms)
+            for optics in BendOptics.allCases {
+                try validate(RenderCase(name: "bounds", tilt: tilt, clearAngle: clearAngle, perspective: perspective, optics: optics).uniforms)
                 validatedUniformSets += 1
             }
         }
@@ -229,10 +229,17 @@ let cases: [RenderCase] = [
     RenderCase(name: "07-duo-no-blur", tilt: 35, blur: 0),
     RenderCase(name: "08-duo-no-shadow", tilt: 35, shadow: 0),
     RenderCase(name: "09-duo-no-blur-or-shadow", tilt: 35, blur: 0, shadow: 0),
-    RenderCase(name: "10-silk-closed30", tilt: 30, perspective: 0.72, blur: 0.25, shadow: 0.25, duo: false),
-    RenderCase(name: "11-frost-closed40", tilt: 40, perspective: 0.62, blur: 0.90, shadow: 0.30, duo: false),
-    RenderCase(name: "12-shade-closed30", tilt: 30, perspective: 0.75, blur: 0.15, shadow: 0.85, duo: false),
-    RenderCase(name: "13-silk-keystone1", tilt: 30, perspective: 0.55, blur: 0.25, shadow: 0.25, keystone: 1, duo: false)
+    RenderCase(name: "10-silk-closed30", tilt: 30, perspective: 0.72, blur: 0.25, shadow: 0.25, optics: .glass),
+    RenderCase(name: "11-frost-closed40", tilt: 40, perspective: 0.62, blur: 0.90, shadow: 0.30, optics: .glass),
+    RenderCase(name: "12-shade-closed30", tilt: 30, perspective: 0.75, blur: 0.15, shadow: 0.85, optics: .glass),
+    RenderCase(name: "13-silk-keystone1", tilt: 30, perspective: 0.55, blur: 0.25, shadow: 0.25, keystone: 1, optics: .glass),
+    RenderCase(name: "14-trueduo-closed08", tilt: 8, optics: .trueDuo),
+    RenderCase(name: "15-trueduo-closed20", tilt: 20, optics: .trueDuo),
+    RenderCase(name: "16-trueduo-closed35", tilt: 35, optics: .trueDuo),
+    RenderCase(name: "17-trueduo-closed50", tilt: 50, optics: .trueDuo),
+    RenderCase(name: "18-trueduo-clear115-closed35", tilt: 35, clearAngle: 115, optics: .trueDuo),
+    RenderCase(name: "19-trueduo-flat-perspective", tilt: 35, perspective: 0.0, optics: .trueDuo),
+    RenderCase(name: "20-trueduo-no-blur", tilt: 35, blur: 0, optics: .trueDuo)
 ]
 for test in cases {
     try validate(test.uniforms)
@@ -247,6 +254,65 @@ let hingeError = (hingeStart..<sourceBytes.count).reduce(0) {
     max($0, abs(Int(sourceBytes[$1]) - Int(hinged[$1])))
 }
 try require(hingeError <= 4, "Bottom hinge moved or diffused excessively: \(hingeError)/255 channel error")
+// True Duo shows the desktop as a rectangle standing in space: the hinge stays anchored, the
+// sides pull in as the lid comes down, and what the glass no longer covers dissolves into black
+// over a soft band rather than ending on a line or smearing the edge pixels outward.
+func rowBrightness(_ row: Int, in rendered: [UInt8]) -> Int {
+    stride(from: row * width * 4, to: (row + 1) * width * 4, by: 4).reduce(0) {
+        max($0, Int(rendered[$1]), Int(rendered[$1 + 1]), Int(rendered[$1 + 2]))
+    }
+}
+func pixelBrightness(_ x: Int, _ y: Int, in rendered: [UInt8]) -> Int {
+    let i = (y * width + x) * 4
+    return max(Int(rendered[i]), Int(rendered[i + 1]), Int(rendered[i + 2]))
+}
+func hingeError(_ rendered: [UInt8]) -> Int {
+    ((height - 2) * width * 4..<rendered.count).reduce(0) {
+        max($0, abs(Int(sourceBytes[$1]) - Int(rendered[$1])))
+    }
+}
+var narrowestFade = Int.max
+var widestWedge = 0
+var trueDuoHinge = 0
+for tilt in [35.0, 50] {
+    let panel = try render(RenderCase(name: "trueduo", tilt: tilt, optics: .trueDuo).uniforms, with: renderer)
+    // The hinge stays anchored and clear. Exact keystone resamples the bottom rows by a
+    // fraction of a pixel, so the tick pattern there lands a couple of levels off Duo's.
+    let hinge = hingeError(panel)
+    let duo = try render(RenderCase(name: "duo", tilt: tilt, optics: .duo).uniforms, with: renderer)
+    let duoHinge = hingeError(duo)
+    trueDuoHinge = max(trueDuoHinge, hinge)
+    try require(hinge <= 8,
+                "True Duo moved the hinge at \(tilt)°: \(hinge)/255 versus Duo's \(duoHinge)/255")
+    for corner in [0, width - 1] {
+        try require(pixelBrightness(corner, 0, in: panel) <= 2,
+                    "True Duo top corner \(corner) is not black at \(tilt)°: \(pixelBrightness(corner, 0, in: panel))/255")
+    }
+    // A quarter of the way down, the side wedge meets the picture. Scanning inward, black has
+    // to give way gradually. The threshold follows the row's own content rather than a fixed
+    // level, since what the screen shows up there is the fixture's own business.
+    let row = (0..<width).map { pixelBrightness($0, height / 4, in: panel) }
+    let full = row.max() ?? 0
+    try require(full > 8, "True Duo is entirely black a quarter down at \(tilt)°")
+    guard let darkEnd = row.firstIndex(where: { $0 > 4 }),
+          let lit = row.firstIndex(where: { Double($0) >= Double(full) * 0.6 }) else {
+        throw RenderTestError.failed("True Duo never reaches lit content at \(tilt)°")
+    }
+    narrowestFade = min(narrowestFade, lit - darkEnd)
+    widestWedge = max(widestWedge, lit)
+    try require(lit - darkEnd >= 8,
+                "True Duo edge is a hard cut at \(tilt)°: black to lit in \(lit - darkEnd) pixels")
+    try require(rowBrightness(height / 2, in: panel) > 20, "True Duo went dark across the middle at \(tilt)°")
+    // The screen keeps its full height: the top of the panel shows the top of the desktop, which
+    // in the fixture is its dark menu bar. Duo, cropping and magnifying, shows the middle of the
+    // desktop up there instead — the white notes window.
+    try require(pixelBrightness(width / 2, 0, in: panel) < 100,
+                "True Duo is not showing the top of the desktop at \(tilt)°: \(pixelBrightness(width / 2, 0, in: panel))/255")
+    try require(pixelBrightness(width / 2, 0, in: duo) > 200, "Duo stopped cropping; the fixture or Duo changed")
+}
+// Duo at the same tilt keeps filling the panel, so the two styles really do differ.
+let duoPanel = try render(RenderCase(name: "duo-corner", tilt: 35, optics: .duo).uniforms, with: renderer)
+try require(pixelBrightness(0, 0, in: duoPanel) > 8, "Duo's corner went black; True Duo's fade leaked into Duo")
 // Switching blur/shadow off must not retain cached effects from the preceding frame.
 let disabled = RenderCase(name: "disabled", tilt: 35, blur: 0, shadow: 0).uniforms
 _ = try render(RenderCase(name: "warm-cache", tilt: 50, blur: 1, shadow: 1).uniforms, with: renderer)
@@ -255,10 +321,11 @@ guard let freshRenderer = BendRenderer(device: device) else { throw RenderTestEr
 let fresh = try render(disabled, with: freshRenderer)
 try require(warmed == fresh, "Blur/shadow disabled depends on a previous rendered frame")
 let report = """
-PASS — identity maximum channel error: \(maximumIdentityError)/255 (six clear-angle/style combinations)
+PASS — identity maximum channel error: \(maximumIdentityError)/255 (nine clear-angle/optics combinations)
 PASS — \(validatedUniformSets) uniform sets finite and bounded
 PASS — fixture and all rendered frames have opaque alpha
 PASS — bottom hinge maximum channel error at 20° closure: \(hingeError)/255
+PASS — True Duo hinge no worse than Duo's (\(trueDuoHinge)/255) and top corners black at 35° and 50° closure; the dissolve spans at least \(narrowestFade) pixels inside a wedge up to \(widestWedge) wide, the screen keeps its full height where Duo has cropped its top away
 PASS — disabling blur and shadow is independent of the previous frame
 Rendered \(cases.count) named previews plus source-desktop.png at \(width) × \(height).
 The menu bar marks the top; the dock and hinge label mark the bottom.

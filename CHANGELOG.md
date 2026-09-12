@@ -22,3 +22,12 @@ First release.
 - Settings redesigned as a native grouped window; first-run onboarding flow.
 - OpenBend only takes keyboard focus once a close is committed, so lid adjustments never
   swallow typing.
+
+## Unreleased
+
+- True Duo style: the desktop becomes the screen itself, left standing while the lid falls in front
+  of it. The whole picture keeps its height instead of being cropped and magnified, its content
+  compressing toward the top, and its sides draw in until what the panel reaches past dissolves
+  into black.
+- A custom mix now remembers which optics it started from (`optics`), so Duo and True Duo mixes keep
+  their look. The old `useDuoOptics` flag is migrated.

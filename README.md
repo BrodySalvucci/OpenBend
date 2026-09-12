@@ -70,7 +70,16 @@ Use **Preview Bend** in the menu bar to see the effect without touching the lid.
 ## Styles
 
 **Duo** is the default: clear at the hinge, progressively softer toward the top edge, like the
-fold on a folding phone. Three more if you want a different feel:
+fold on a folding phone.
+
+**True Duo** treats the desktop as the screen itself rather than as a plane the panel slides across.
+The screen stays standing while the lid falls in front of it: the whole picture holds its height,
+its content compressing toward the top as that edge leans away, and its sides draw in with the
+perspective until what the panel reaches past is black. Those edges dissolve into the black rather
+than ending on a line. Same sliders as Duo; Perspective sets how near the eye is, and so how hard
+the sides pull in.
+
+Three more if you want a different feel:
 
 | Silk | Shade | Frost |
 | --- | --- | --- |
@@ -110,7 +119,7 @@ These have no UI and take effect live:
 
 ```bash
 defaults write com.openbend.OpenBend eyeHeightRatio -float 0.5   # look-down angle (eye height ÷ distance)
-defaults write com.openbend.OpenBend keystone -float 0.4         # horizontal narrowing, 1 = exact, 0 = none
+defaults write com.openbend.OpenBend keystone -float 0.4         # horizontal narrowing, 1 = exact, 0 = none (unused by True Duo)
 defaults write com.openbend.OpenBend smoothing -float 0.03       # display low-pass, seconds
 defaults write com.openbend.OpenBend leadTime -float 0.03        # motion lead to cancel latency, seconds
 ```

@@ -41,7 +41,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         menu.addItem(previewItem)
 
         let styleMenu = NSMenu()
-        for style in [BendStyle.duo, .silk, .shade, .frost] {
+        for style in [BendStyle.duo, .trueDuo, .silk, .shade, .frost] {
             let item = NSMenuItem(title: style.title, action: #selector(selectStyle(_:)), keyEquivalent: "")
             item.target = self
             item.representedObject = style.rawValue

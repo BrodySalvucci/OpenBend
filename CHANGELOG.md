@@ -22,3 +22,11 @@ First release.
 - Settings redesigned as a native grouped window; first-run onboarding flow.
 - OpenBend only takes keyboard focus once a close is committed, so lid adjustments never
   swallow typing.
+
+## Unreleased
+
+- True Duo style: the screen becomes the foldable, creased across the middle. The lower half stays
+  put and sharp; the upper half folds down toward you and frosts over with a hard edge at the crease,
+  shrinking toward it as the lid comes down.
+- A custom mix now remembers which optics it started from (`optics`), so Duo and True Duo mixes keep
+  their look. The old `useDuoOptics` flag is migrated.

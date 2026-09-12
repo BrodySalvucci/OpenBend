@@ -25,7 +25,7 @@ final class BendRenderer: NSObject, MTKViewDelegate {
     /// Blur targets and horizontal-pass scratch textures, keyed by mip level.
     private var blurTargets: [String: MTLTexture] = [:]
     private var blurScratch: [Int: MTLTexture] = [:]
-    /// A Gaussian scale space for Duo. Built once per captured frame; lid motion only changes LOD.
+    /// A Gaussian scale space for Duo and True Duo. Built once per captured frame; lid motion only changes LOD.
     private var diffusionTexture: MTLTexture?
     private var diffusionScratch: [Int: MTLTexture] = [:]
     private var diffusionIsCurrent = false
@@ -269,6 +269,7 @@ final class BendRenderer: NSObject, MTKViewDelegate {
         let blur = uniforms.p2.x
         let ramp = uniforms.p2.w
         guard blur > 0.000001 || ramp > 0.000001 else { return }
+        // Duo and True Duo both draw from the diffusion pyramid.
         if uniforms.p3.y > 0.5 {
             encodeDiffusion(using: commandBuffer)
             return

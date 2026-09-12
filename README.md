@@ -70,7 +70,15 @@ Use **Preview Bend** in the menu bar to see the effect without touching the lid.
 ## Styles
 
 **Duo** is the default: clear at the hinge, progressively softer toward the top edge, like the
-fold on a folding phone. Three more if you want a different feel:
+fold on a folding phone.
+
+**True Duo** makes the screen itself the foldable. It is creased across the middle: the lower half
+stays exactly as it is, and the upper half folds down toward you as the lid closes, frosting over
+with a hard edge at the crease and shrinking toward it, the way the folding half of the phone does.
+Past its far edge the panel goes dark. Perspective sets how quickly it foreshortens, Blur how heavy
+the frost is, and Shadow how much its far edge darkens.
+
+Three more if you want a different feel:
 
 | Silk | Shade | Frost |
 | --- | --- | --- |

@@ -2,13 +2,14 @@ import Foundation
 import Observation
 
 enum BendStyle: String, CaseIterable, Identifiable {
-    case duo, silk, shade, frost, custom
+    case duo, trueDuo, silk, shade, frost, custom
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .duo: "Duo"
+        case .trueDuo: "True Duo"
         case .silk: "Silk"
         case .shade: "Shade"
         case .frost: "Frost"
@@ -19,6 +20,7 @@ enum BendStyle: String, CaseIterable, Identifiable {
     var blurb: String {
         switch self {
         case .duo: "Clear at the hinge. Soft toward the edge."
+        case .trueDuo: "Creased across the middle. The top half folds down and frosts over."
         case .silk: "A clean tilt with a whisper of blur."
         case .shade: "The lid casts a shadow as it comes down."
         case .frost: "Frosted glass. The desktop softens into haze."
@@ -29,6 +31,7 @@ enum BendStyle: String, CaseIterable, Identifiable {
     var symbol: String {
         switch self {
         case .duo: "rectangle.bottomhalf.filled"
+        case .trueDuo: "rectangle.tophalf.filled"
         case .silk: "wind"
         case .shade: "moon.fill"
         case .frost: "snowflake"
@@ -40,9 +43,20 @@ enum BendStyle: String, CaseIterable, Identifiable {
     var preset: (Double, Double, Double)? {
         switch self {
         case .duo: (0.58, 0.85, 0.28)
+        case .trueDuo: (0.58, 0.90, 0.20)
         case .silk: (0.72, 0.25, 0.25)
         case .shade: (0.75, 0.15, 0.85)
         case .frost: (0.62, 0.90, 0.30)
+        case .custom: nil
+        }
+    }
+
+    /// The spatial model behind a preset. Custom keeps whichever it started from.
+    var optics: BendOptics? {
+        switch self {
+        case .duo: .duo
+        case .trueDuo: .trueDuo
+        case .silk, .shade, .frost: .glass
         case .custom: nil
         }
     }
@@ -60,8 +74,9 @@ final class Settings {
     @ObservationIgnored var onChange: (() -> Void)?
 
     var style: BendStyle { didSet { save(style.rawValue, "style"); applyPresetIfNeeded(); changed() } }
-    /// Keep Duo’s spatial optics when a slider turns its preset into a custom mix.
-    private(set) var useDuoOptics: Bool { didSet { save(useDuoOptics, "useDuoOptics"); changed() } }
+    /// The spatial model in use. A preset sets it; a slider turning that preset into a custom
+    /// mix keeps it, so Duo and True Duo mixes keep their optics.
+    private(set) var optics: BendOptics { didSet { save(optics.rawValue, "optics"); changed() } }
     var perspective: Double { didSet { save(perspective, "perspective"); markCustom(); changed() } }
     var blur: Double { didSet { save(blur, "blur"); markCustom(); changed() } }
     var shadow: Double { didSet { save(shadow, "shadow"); markCustom(); changed() } }
@@ -99,7 +114,14 @@ final class Settings {
         ])
         let savedStyle = BendStyle(rawValue: defaults.string(forKey: "style") ?? "") ?? .duo
         style = savedStyle
-        useDuoOptics = savedStyle == .custom ? defaults.bool(forKey: "useDuoOptics") : savedStyle == .duo
+        if let presetOptics = savedStyle.optics {
+            optics = presetOptics
+        } else if let savedOptics = defaults.string(forKey: "optics").flatMap({ BendOptics(rawValue: $0) }) {
+            optics = savedOptics
+        } else {
+            // Before True Duo, a custom mix only remembered whether it kept Duo's optics.
+            optics = defaults.bool(forKey: "useDuoOptics") ? .duo : .glass
+        }
         perspective = defaults.double(forKey: "perspective")
         blur = defaults.double(forKey: "blur")
         shadow = defaults.double(forKey: "shadow")
@@ -117,7 +139,7 @@ final class Settings {
         smoothing = defaults.double(forKey: "smoothing")
         leadTime = defaults.double(forKey: "leadTime")
         loading = false
-        save(useDuoOptics, "useDuoOptics")
+        save(optics.rawValue, "optics")
         // Presets are tuned over time; re-apply the current one so saved slider values don't pin
         // an older tuning. Custom mixes are left alone.
         if let (p, b, sh) = style.preset {
@@ -129,7 +151,7 @@ final class Settings {
 
     private func applyPresetIfNeeded() {
         guard !loading else { return }
-        if style != .custom { useDuoOptics = style == .duo }
+        if let presetOptics = style.optics { optics = presetOptics }
         guard let (p, b, s) = style.preset else { return }
         applyingPreset = true
         perspective = p

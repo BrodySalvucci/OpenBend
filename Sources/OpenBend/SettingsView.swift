@@ -53,7 +53,7 @@ struct SettingsView: View {
         .padding(.horizontal, 22)
         .padding(.top, 28)      // clears the traffic lights under the transparent title bar
         .padding(.bottom, 14)
-        .frame(width: 540)
+        .frame(width: 600)
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
@@ -101,7 +101,7 @@ struct SettingsView: View {
     private var styleSection: some View {
         SettingsSection("Style", accessory: AnyView(previewButton)) {
             HStack(spacing: 10) {
-                ForEach([BendStyle.duo, .silk, .shade, .frost]) { style in
+                ForEach([BendStyle.duo, .trueDuo, .silk, .shade, .frost]) { style in
                     StyleCard(style: style, selected: settings.style == style) {
                         settings.style = style
                     }
@@ -442,7 +442,8 @@ struct PressableCardStyle: ButtonStyle {
 // MARK: - Artwork
 
 /// A small illustrative desktop on a tilted panel. The lower edge stays sharp and anchored;
-/// each style shows its own treatment toward the top.
+/// each style shows its own treatment toward the top. True Duo creases the panel across the
+/// middle instead: the lower leaf is untouched and the upper leaf comes down frosted.
 struct FoldedDesktop: View {
     let style: BendStyle
 
@@ -450,6 +451,7 @@ struct FoldedDesktop: View {
         GeometryReader { geometry in
             let width = geometry.size.width
             let height = geometry.size.height
+            let surface = FoldedSurface(creased: style == .trueDuo)
             ZStack(alignment: .bottom) {
                 Ellipse().fill(BendArt.pink.opacity(0.22))
                     .frame(width: width * 0.85, height: height * 0.15)
@@ -461,8 +463,8 @@ struct FoldedDesktop: View {
                     }
                     if style == .frost { Color.white.opacity(0.13) }
                 }
-                .clipShape(FoldedSurface())
-                .overlay(FoldedSurface().stroke(.white.opacity(0.22), lineWidth: 0.8))
+                .clipShape(surface)
+                .overlay(surface.stroke(.white.opacity(0.22), lineWidth: 0.8))
                 .padding(.bottom, 7)
                 Capsule().fill(LinearGradient(colors: [.white.opacity(0.08), BendArt.pink.opacity(0.80), .white.opacity(0.08)],
                                               startPoint: .leading, endPoint: .trailing))
@@ -476,8 +478,27 @@ struct FoldedDesktop: View {
 }
 
 private struct FoldedSurface: Shape {
+    /// True Duo: the lower leaf keeps its footing below the crease; the upper leaf has folded
+    /// toward the viewer, so it is shorter and a touch wider at its far edge.
+    var creased = false
+
     func path(in rect: CGRect) -> Path {
         let w = rect.width, h = rect.height
+        if creased {
+            return Path { path in
+                path.move(to: CGPoint(x: w * 0.085, y: h * 0.19))
+                path.addQuadCurve(to: CGPoint(x: w * 0.115, y: h * 0.13), control: CGPoint(x: w * 0.095, y: h * 0.13))
+                path.addLine(to: CGPoint(x: w * 0.885, y: h * 0.13))
+                path.addQuadCurve(to: CGPoint(x: w * 0.915, y: h * 0.19), control: CGPoint(x: w * 0.905, y: h * 0.13))
+                path.addLine(to: CGPoint(x: w * 0.904, y: h * 0.50))
+                path.addLine(to: CGPoint(x: w * 0.97, y: h * 0.90))
+                path.addQuadCurve(to: CGPoint(x: w * 0.94, y: h * 0.98), control: CGPoint(x: w * 0.99, y: h * 0.98))
+                path.addLine(to: CGPoint(x: w * 0.06, y: h * 0.98))
+                path.addQuadCurve(to: CGPoint(x: w * 0.03, y: h * 0.90), control: CGPoint(x: w * 0.01, y: h * 0.98))
+                path.addLine(to: CGPoint(x: w * 0.096, y: h * 0.50))
+                path.closeSubpath()
+            }
+        }
         return Path { path in
             path.move(to: CGPoint(x: w * 0.16, y: h * 0.10))
             path.addQuadCurve(to: CGPoint(x: w * 0.19, y: h * 0.04), control: CGPoint(x: w * 0.17, y: h * 0.04))
@@ -512,6 +533,15 @@ private struct DesktopTiles: View {
                 if style == .frost { desktop.addFilter(.blur(radius: w * 0.011)) }
                 desktop.drawLayer { widgets in
                     if style == .duo { widgets.addFilter(.blur(radius: w * 0.023)) }
+                    if style == .trueDuo {
+                        // The upper leaf has folded toward the viewer: its widgets squeeze toward
+                        // the crease behind heavy frost, with a hard edge at the crease.
+                        widgets.clip(to: Path(CGRect(x: 0, y: 0, width: w, height: h * 0.5)))
+                        widgets.addFilter(.blur(radius: w * 0.035))
+                        widgets.translateBy(x: 0, y: h * 0.5)
+                        widgets.scaleBy(x: 1, y: 0.74)
+                        widgets.translateBy(x: 0, y: -h * 0.5)
+                    }
                     let frames = [
                         CGRect(x: w * 0.19, y: h * 0.15, width: w * 0.28, height: h * 0.36),
                         CGRect(x: w * 0.51, y: h * 0.15, width: w * 0.13, height: h * 0.36),
@@ -521,6 +551,9 @@ private struct DesktopTiles: View {
                     for index in frames.indices {
                         widgets.fill(Path(roundedRect: frames[index], cornerRadius: w * 0.02), with: .color(colors[index]))
                     }
+                }
+                if style == .trueDuo {
+                    desktop.fill(Path(CGRect(x: 0, y: 0, width: w, height: h * 0.5)), with: .color(.white.opacity(0.16)))
                 }
                 let iconWidth = w * 0.071
                 let dock = CGRect(x: w * 0.21, y: h * 0.67, width: w * 0.58, height: h * 0.24)

@@ -187,32 +187,32 @@ struct RenderCase {
     var blur: Double = 0.85
     var shadow: Double = 0.28
     var keystone: Double = 0.4
-    var duo: Bool = true
+    var optics: BendOptics = .duo
     var uniforms: BendUniforms {
         BendMath.uniforms(tilt: tilt, clearAngle: clearAngle,
                           eye: BendMath.eye(perspective: perspective, heightRatio: 0.5),
-                          blur: blur, shadow: shadow, keystone: keystone, duo: duo)
+                          blur: blur, shadow: shadow, keystone: keystone, optics: optics)
     }
 }
 // Identity is a pixel-level promise, including at unusual clear angles.
 var maximumIdentityError = 0
 for clearAngle in [40.0, 90.0, 115.0] {
-    for duo in [false, true] {
-        let u = RenderCase(name: "identity", tilt: 0, clearAngle: clearAngle, duo: duo).uniforms
+    for optics in BendOptics.allCases {
+        let u = RenderCase(name: "identity", tilt: 0, clearAngle: clearAngle, optics: optics).uniforms
         try validate(u)
         let actual = try render(u, with: renderer)
         let error = zip(sourceBytes, actual).reduce(0) { max($0, abs(Int($1.0) - Int($1.1))) }
         maximumIdentityError = max(maximumIdentityError, error)
         // One 8-bit level allows texture-filter rounding; any blur or shading fails.
-        try require(error <= 1, "Identity differs by \(error) at clear angle \(clearAngle), Duo \(duo)")
+        try require(error <= 1, "Identity differs by \(error) at clear angle \(clearAngle), optics \(optics)")
     }
 }
 var validatedUniformSets = 0
 for clearAngle in [40.0, 90.0, 115.0] {
     for tilt in [-5.0, 0, 8, 20, 35, 50, 90, 180] {
         for perspective in [0.0, 0.5, 1] {
-            for duo in [false, true] {
-                try validate(RenderCase(name: "bounds", tilt: tilt, clearAngle: clearAngle, perspective: perspective, duo: duo).uniforms)
+            for optics in BendOptics.allCases {
+                try validate(RenderCase(name: "bounds", tilt: tilt, clearAngle: clearAngle, perspective: perspective, optics: optics).uniforms)
                 validatedUniformSets += 1
             }
         }
@@ -229,10 +229,17 @@ let cases: [RenderCase] = [
     RenderCase(name: "07-duo-no-blur", tilt: 35, blur: 0),
     RenderCase(name: "08-duo-no-shadow", tilt: 35, shadow: 0),
     RenderCase(name: "09-duo-no-blur-or-shadow", tilt: 35, blur: 0, shadow: 0),
-    RenderCase(name: "10-silk-closed30", tilt: 30, perspective: 0.72, blur: 0.25, shadow: 0.25, duo: false),
-    RenderCase(name: "11-frost-closed40", tilt: 40, perspective: 0.62, blur: 0.90, shadow: 0.30, duo: false),
-    RenderCase(name: "12-shade-closed30", tilt: 30, perspective: 0.75, blur: 0.15, shadow: 0.85, duo: false),
-    RenderCase(name: "13-silk-keystone1", tilt: 30, perspective: 0.55, blur: 0.25, shadow: 0.25, keystone: 1, duo: false)
+    RenderCase(name: "10-silk-closed30", tilt: 30, perspective: 0.72, blur: 0.25, shadow: 0.25, optics: .glass),
+    RenderCase(name: "11-frost-closed40", tilt: 40, perspective: 0.62, blur: 0.90, shadow: 0.30, optics: .glass),
+    RenderCase(name: "12-shade-closed30", tilt: 30, perspective: 0.75, blur: 0.15, shadow: 0.85, optics: .glass),
+    RenderCase(name: "13-silk-keystone1", tilt: 30, perspective: 0.55, blur: 0.25, shadow: 0.25, keystone: 1, optics: .glass),
+    RenderCase(name: "14-trueduo-closed08", tilt: 8, blur: 0.90, shadow: 0.20, optics: .trueDuo),
+    RenderCase(name: "15-trueduo-closed20", tilt: 20, blur: 0.90, shadow: 0.20, optics: .trueDuo),
+    RenderCase(name: "16-trueduo-closed35", tilt: 35, blur: 0.90, shadow: 0.20, optics: .trueDuo),
+    RenderCase(name: "17-trueduo-closed50", tilt: 50, blur: 0.90, shadow: 0.20, optics: .trueDuo),
+    RenderCase(name: "18-trueduo-clear115-closed35", tilt: 35, clearAngle: 115, blur: 0.90, shadow: 0.20, optics: .trueDuo),
+    RenderCase(name: "19-trueduo-keystone1", tilt: 35, blur: 0.90, shadow: 0.20, keystone: 1, optics: .trueDuo),
+    RenderCase(name: "20-trueduo-no-blur", tilt: 35, blur: 0, shadow: 0.20, optics: .trueDuo)
 ]
 for test in cases {
     try validate(test.uniforms)
@@ -247,6 +254,26 @@ let hingeError = (hingeStart..<sourceBytes.count).reduce(0) {
     max($0, abs(Int(sourceBytes[$1]) - Int(hinged[$1])))
 }
 try require(hingeError <= 4, "Bottom hinge moved or diffused excessively: \(hingeError)/255 channel error")
+// True Duo leaves the lower leaf untouched at any fold, frosts the upper leaf with a hard edge
+// at the crease, and brings the leaf's far edge down so the top of the panel goes dark.
+func rowError(_ row: Int, in rendered: [UInt8]) -> Int {
+    (row * width * 4..<(row + 1) * width * 4).reduce(0) { max($0, abs(Int(sourceBytes[$1]) - Int(rendered[$1]))) }
+}
+func rowBrightness(_ row: Int, in rendered: [UInt8]) -> Int {
+    stride(from: row * width * 4, to: (row + 1) * width * 4, by: 4).reduce(0) {
+        max($0, Int(rendered[$1]), Int(rendered[$1 + 1]), Int(rendered[$1 + 2]))
+    }
+}
+let creaseRow = height / 2
+var lowerLeafError = 0
+for tilt in [8.0, 35, 50] {
+    let creased = try render(RenderCase(name: "creased", tilt: tilt, blur: 0.90, shadow: 0.20, optics: .trueDuo).uniforms, with: renderer)
+    lowerLeafError = (creaseRow..<height).reduce(lowerLeafError) { max($0, rowError($1, in: creased)) }
+    try require(lowerLeafError <= 1, "True Duo altered the lower leaf at \(tilt)°: \(lowerLeafError)/255 channel error")
+    try require(rowError(creaseRow - 1, in: creased) > 8, "True Duo upper leaf is not frosted just above the crease at \(tilt)°")
+    try require(rowBrightness(0, in: creased) <= 1, "True Duo leaf still reaches the top of the panel at \(tilt)°: \(rowBrightness(0, in: creased))/255")
+    try require(rowBrightness(creaseRow - 1, in: creased) > 40, "True Duo upper leaf went dark at the crease at \(tilt)°")
+}
 // Switching blur/shadow off must not retain cached effects from the preceding frame.
 let disabled = RenderCase(name: "disabled", tilt: 35, blur: 0, shadow: 0).uniforms
 _ = try render(RenderCase(name: "warm-cache", tilt: 50, blur: 1, shadow: 1).uniforms, with: renderer)
@@ -259,6 +286,7 @@ PASS — identity maximum channel error: \(maximumIdentityError)/255 (six clear-
 PASS — \(validatedUniformSets) uniform sets finite and bounded
 PASS — fixture and all rendered frames have opaque alpha
 PASS — bottom hinge maximum channel error at 20° closure: \(hingeError)/255
+PASS — True Duo lower leaf maximum channel error at 8°, 35° and 50° closure: \(lowerLeafError)/255; upper leaf frosted with a hard crease and dark past its far edge
 PASS — disabling blur and shadow is independent of the previous frame
 Rendered \(cases.count) named previews plus source-desktop.png at \(width) × \(height).
 The menu bar marks the top; the dock and hinge label mark the bottom.

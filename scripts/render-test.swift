@@ -288,9 +288,14 @@ for tilt in [35.0, 50] {
         try require(pixelBrightness(corner, 0, in: panel) <= 2,
                     "True Duo top corner \(corner) is not black at \(tilt)°: \(pixelBrightness(corner, 0, in: panel))/255")
     }
-    // Scanning inward along the top edge, black has to give way to the picture gradually.
-    let row = (0..<width).map { pixelBrightness($0, 0, in: panel) }
-    guard let darkEnd = row.firstIndex(where: { $0 > 4 }), let lit = row.firstIndex(where: { $0 > 120 }) else {
+    // A quarter of the way down, the side wedge meets the picture. Scanning inward, black has
+    // to give way gradually. The threshold follows the row's own content rather than a fixed
+    // level, since what the screen shows up there is the fixture's own business.
+    let row = (0..<width).map { pixelBrightness($0, height / 4, in: panel) }
+    let full = row.max() ?? 0
+    try require(full > 8, "True Duo is entirely black a quarter down at \(tilt)°")
+    guard let darkEnd = row.firstIndex(where: { $0 > 4 }),
+          let lit = row.firstIndex(where: { Double($0) >= Double(full) * 0.6 }) else {
         throw RenderTestError.failed("True Duo never reaches lit content at \(tilt)°")
     }
     narrowestFade = min(narrowestFade, lit - darkEnd)
@@ -298,13 +303,16 @@ for tilt in [35.0, 50] {
     try require(lit - darkEnd >= 8,
                 "True Duo edge is a hard cut at \(tilt)°: black to lit in \(lit - darkEnd) pixels")
     try require(rowBrightness(height / 2, in: panel) > 20, "True Duo went dark across the middle at \(tilt)°")
-    // Down the panel's centre line the narrowing has nothing to do, so True Duo must match Duo
-    // pixel for pixel there: only the edges change.
-    let centre = stride(from: (width / 2) * 4, to: panel.count, by: width * 4).reduce(0) {
-        max($0, abs(Int(panel[$1]) - Int(duo[$1])), abs(Int(panel[$1 + 1]) - Int(duo[$1 + 1])),
-            abs(Int(panel[$1 + 2]) - Int(duo[$1 + 2])))
+    // The whole screen stays on the panel: its top edge has receded into the black with room
+    // above it, and its bottom edge is still the hinge. Duo, sliding over a fixed plane, has
+    // no black above at all — it has cropped the top of the desktop away and magnified the rest.
+    func firstLitRow(_ rendered: [UInt8]) -> Int {
+        (0..<height).first { rowBrightness($0, in: rendered) > 4 } ?? height
     }
-    try require(centre <= 1, "True Duo changed the panel's centre line at \(tilt)°: \(centre)/255")
+    let top = firstLitRow(panel)
+    try require(top > 5 && top < height / 3,
+                "True Duo's screen top sits at row \(top) at \(tilt)°, not standing clear in the black")
+    try require(firstLitRow(duo) == 0, "Duo grew a black band above the desktop")
 }
 // Duo at the same tilt keeps filling the panel, so the two styles really do differ.
 let duoPanel = try render(RenderCase(name: "duo-corner", tilt: 35, optics: .duo).uniforms, with: renderer)
@@ -321,7 +329,7 @@ PASS — identity maximum channel error: \(maximumIdentityError)/255 (nine clear
 PASS — \(validatedUniformSets) uniform sets finite and bounded
 PASS — fixture and all rendered frames have opaque alpha
 PASS — bottom hinge maximum channel error at 20° closure: \(hingeError)/255
-PASS — True Duo hinge no worse than Duo's (\(trueDuoHinge)/255) and top corners black at 35° and 50° closure; the dissolve spans at least \(narrowestFade) pixels inside a wedge up to \(widestWedge) wide, the centre line matches Duo exactly, and Duo still fills the panel
+PASS — True Duo hinge no worse than Duo's (\(trueDuoHinge)/255) and top corners black at 35° and 50° closure; the dissolve spans at least \(narrowestFade) pixels inside a wedge up to \(widestWedge) wide, the whole desktop stays on the panel where Duo has cropped its top away
 PASS — disabling blur and shadow is independent of the previous frame
 Rendered \(cases.count) named previews plus source-desktop.png at \(width) × \(height).
 The menu bar marks the top; the dock and hinge label mark the bottom.

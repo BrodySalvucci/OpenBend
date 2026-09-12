@@ -72,10 +72,12 @@ Use **Preview Bend** in the menu bar to see the effect without touching the lid.
 **Duo** is the default: clear at the hinge, progressively softer toward the top edge, like the
 fold on a folding phone.
 
-**True Duo** is Duo with the perspective drawn exactly. The desktop stops filling the panel edge to
-edge and becomes a rectangle standing in space: as the lid comes down its sides pull in and its top
-leans away, and everything the glass no longer covers dissolves into black. The dissolve is soft, so
-the picture melts into the dark instead of ending on a hard line. Same sliders as Duo.
+**True Duo** treats the desktop as the screen itself rather than as a plane the panel slides across.
+It is a rigid rectangle, hinged where the MacBook hinges, and it lies back into space as the lid
+comes down: the whole picture stays on the panel and foreshortens as one object, its top edge
+receding and its sides drawing in, with black around it. The edges dissolve into that black rather
+than ending on a line. Same sliders as Duo; Perspective sets how near the eye is, and so how hard
+the picture leans.
 
 Three more if you want a different feel:
 
@@ -117,7 +119,7 @@ These have no UI and take effect live:
 
 ```bash
 defaults write com.openbend.OpenBend eyeHeightRatio -float 0.5   # look-down angle (eye height ÷ distance)
-defaults write com.openbend.OpenBend keystone -float 0.4         # horizontal narrowing, 1 = exact, 0 = none (True Duo is always exact)
+defaults write com.openbend.OpenBend keystone -float 0.4         # horizontal narrowing, 1 = exact, 0 = none (unused by True Duo)
 defaults write com.openbend.OpenBend smoothing -float 0.03       # display low-pass, seconds
 defaults write com.openbend.OpenBend leadTime -float 0.03        # motion lead to cancel latency, seconds
 ```

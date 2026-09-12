@@ -7,9 +7,9 @@ enum BendOptics: String, CaseIterable {
     case glass
     /// Glass optics with a clear contact zone at the MacBook hinge and a diffusion pyramid (Duo).
     case duo
-    /// Duo's optics, drawn as a lit panel standing in space: the horizontal narrowing is
-    /// physically exact and, past the desktop's edge, the picture dissolves into black
-    /// instead of smearing the edge pixels outward (True Duo).
+    /// The desktop is the screen itself: a rigid rectangle hinged where the MacBook hinges,
+    /// lying back into space as the lid comes down. It stays whole and foreshortens as one
+    /// object, with black around it (True Duo).
     case trueDuo
 
     var shaderMode: Float {
@@ -19,11 +19,6 @@ enum BendOptics: String, CaseIterable {
         case .trueDuo: 2
         }
     }
-
-    /// Overrides the `keystone` tuning knob. True Duo draws the narrowing exactly, which is what
-    /// makes the desktop read as a panel in space; the knob only kept the others' edge spill in
-    /// check, and True Duo has no spill to contain.
-    var fixedKeystone: Double? { self == .trueDuo ? 1 : nil }
 }
 
 /// Per-frame shader parameters. Four float4s so the Swift and Metal layouts trivially agree.
@@ -85,7 +80,6 @@ enum BendMath {
     }
 
     /// Build uniforms for a lid that has closed `tilt` degrees past `clearAngle`.
-    /// `keystone` is the tuning knob; an optics with its own fixed value overrides it.
     static func uniforms(tilt: Double, clearAngle: Double, eye: Eye, blur: Double, shadow: Double, keystone: Double = 0.4, optics: BendOptics = .glass) -> BendUniforms {
         let maxTilt = maximumTilt(clearAngle: clearAngle, eye: eye)
         let t = min(max(tilt, 0), maxTilt)
@@ -95,13 +89,12 @@ enum BendMath {
         // as the panel turns edge-on to the eye.
         let ramp = smoothstep(t / (maxTilt * 0.85))
         let visibility = smoothstep(viewCosine(angle: angle, eye: eye) / 0.16)
-        let k = optics.fixedKeystone ?? keystone
 
         return BendUniforms(
             p0: SIMD4(Float(angle * .pi / 180), Float(clearAngle * .pi / 180), Float(eye.distance), Float(eye.height)),
             p1: .zero,
             p2: SIMD4(Float(blur * ramp), Float(shadow * ramp), Float(visibility), Float(ramp)),
-            p3: SIMD4(Float(min(max(k, 0), 1)), optics.shaderMode, 0, 0)
+            p3: SIMD4(Float(min(max(keystone, 0), 1)), optics.shaderMode, 0, 0)
         )
     }
 }

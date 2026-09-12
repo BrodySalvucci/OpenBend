@@ -125,6 +125,32 @@ enum BendShaders {
         outside = max(outside, 0.0);
 
         if (p3.y > 0.5) {
+            float overshootX = 0.0;
+            float overshootY = 0.0;
+            if (p3.y > 1.5) {
+                // True Duo: the desktop is not a plane the panel slides across. It is the screen
+                // itself — a rigid rectangle, hinged where the MacBook hinges, that lies back
+                // into space as the lid comes down. The whole picture stays on the panel and
+                // foreshortens as one object, its top edge receding and narrowing, with nothing
+                // but black around it. That is what reads as a screen standing in space rather
+                // than a window pane sliding over one.
+                float theta = alpha0 - alpha;                      // how far the lid has come down
+                float ct = cos(theta);
+                float st = sin(theta);
+                float lean = eye.x * ct - st * (s - eye.y);
+                if (lean < 0.001) { return float4(0.0, 0.0, 0.0, 1.0); }
+                float b = s * eye.x / lean;                        // height up the laid-back screen
+                float foreshorten = eye.x / (eye.x + b * st);      // how much it has shrunk there
+                uv = float2((z / foreshorten) / aspect + 0.5, 1.0 - b);
+                outside = max(max(max(-uv.x, uv.x - 1.0), max(-uv.y, uv.y - 1.0)), 0.0);
+
+                // Where the panel reaches past the screen's own edges — nothing at the hinge,
+                // widening toward the top. This is the black, and the width of its dissolve.
+                overshootX = max(0.0, (1.0 / foreshorten - 1.0) * 0.5);
+                float leanTop = max(eye.x * ct - st * (1.0 - eye.y), 0.001);
+                overshootY = max(0.0, eye.x / leanTop - 1.0);
+            }
+
             // Duo and True Duo share these optics. Leave a contact zone clear at the MacBook
             // hinge. The glass-to-content distance grows toward the top, so blur develops
             // spatially instead of dimming the whole panel.
@@ -150,28 +176,13 @@ enum BendShaders {
             color *= (1.0 - shade) * visibility;
 
             if (p3.y > 1.5) {
-                // True Duo draws the narrowing exactly, so the desktop reads as a rectangle
-                // standing in space: the further the lid comes down, the more the sides pull in.
-                // Past the desktop's edge there is nothing behind the glass. Fading a sample
-                // taken out there would fade a copy of the edge pixels, which reads as the
-                // content ghosting outward, so the falloff is measured from inside the picture:
-                // beyond the edge is exactly black, and the last of the real content dissolves
-                // into it. The band opens up with the travel, so a barely-folded lid still meets
-                // its own edge cleanly. uv.y == 1 is the hinge, which stays anchored and solid.
-                // How far the panel reaches past the desktop at this row, in desktop units.
-                // At the hinge it is nothing — the two edges coincide — and it opens up toward
-                // the top, which is what draws the wedge.
-                float widen = 1.0 + keystone * (mu - 1.0);
-                float overshootX = max(0.0, (widen - 1.0) * 0.5);
-                float reach = -dot(n0, eye);
-                float muTop = reach / max(reach + sin(alpha - alpha0), 0.0001);
-                float depth = eye.x * cos(alpha0) + eye.y * sin(alpha0);
-                float overshootY = max(0.0, depth + muTop * (cos(alpha - alpha0) - depth) - 1.0);
-
-                // Dissolve the last of the real content into the black, never wider than the
-                // overshoot itself, so an edge that still lines up with the panel's own edge
-                // (the hinge, and the whole picture before the lid moves) stays untouched.
-                // Half a texel of slack keeps that coincident edge on the lit side.
+                // Past the screen's edge there is nothing to show. Fading a sample taken out
+                // there would fade a copy of the edge pixels, which reads as the content
+                // ghosting outward, so the falloff is measured from inside the picture: beyond
+                // the edge is exactly black, and the last of the real content dissolves into it.
+                // The dissolve is never wider than the overshoot itself, so an edge still lined
+                // up with the panel's own edge — the hinge, and the whole picture before the lid
+                // moves — is left alone, with half a texel of slack to keep it on the lit side.
                 float band = 0.01 + 0.05 * ramp;
                 float fadeX = smoothstep(0.0, max(min(band, overshootX), 0.00001),
                                          min(uv.x, 1.0 - uv.x) + 0.5 * p1.x);

@@ -151,11 +151,33 @@ enum BendShaders {
 
             if (p3.y > 1.5) {
                 // True Duo draws the narrowing exactly, so the desktop reads as a rectangle
-                // standing in space: the further the lid comes down, the more the sides pull in
-                // and the top edge leans away. There is nothing behind the glass out there, so
-                // instead of smearing the edge pixels outward the picture dissolves into black
-                // over a soft band — black corners, but never a black border drawn on a line.
-                color *= 1.0 - smoothstep(0.0, 0.04, outside);
+                // standing in space: the further the lid comes down, the more the sides pull in.
+                // Past the desktop's edge there is nothing behind the glass. Fading a sample
+                // taken out there would fade a copy of the edge pixels, which reads as the
+                // content ghosting outward, so the falloff is measured from inside the picture:
+                // beyond the edge is exactly black, and the last of the real content dissolves
+                // into it. The band opens up with the travel, so a barely-folded lid still meets
+                // its own edge cleanly. uv.y == 1 is the hinge, which stays anchored and solid.
+                // How far the panel reaches past the desktop at this row, in desktop units.
+                // At the hinge it is nothing — the two edges coincide — and it opens up toward
+                // the top, which is what draws the wedge.
+                float widen = 1.0 + keystone * (mu - 1.0);
+                float overshootX = max(0.0, (widen - 1.0) * 0.5);
+                float reach = -dot(n0, eye);
+                float muTop = reach / max(reach + sin(alpha - alpha0), 0.0001);
+                float depth = eye.x * cos(alpha0) + eye.y * sin(alpha0);
+                float overshootY = max(0.0, depth + muTop * (cos(alpha - alpha0) - depth) - 1.0);
+
+                // Dissolve the last of the real content into the black, never wider than the
+                // overshoot itself, so an edge that still lines up with the panel's own edge
+                // (the hinge, and the whole picture before the lid moves) stays untouched.
+                // Half a texel of slack keeps that coincident edge on the lit side.
+                float band = 0.01 + 0.05 * ramp;
+                float fadeX = smoothstep(0.0, max(min(band, overshootX), 0.00001),
+                                         min(uv.x, 1.0 - uv.x) + 0.5 * p1.x);
+                float fadeY = smoothstep(0.0, max(min(band, overshootY), 0.00001),
+                                         uv.y + 0.5 * p1.y);
+                color *= min(fadeX, fadeY);
             } else {
                 color *= 1.0 - 0.24 * outsideMix;
             }

@@ -303,16 +303,12 @@ for tilt in [35.0, 50] {
     try require(lit - darkEnd >= 8,
                 "True Duo edge is a hard cut at \(tilt)°: black to lit in \(lit - darkEnd) pixels")
     try require(rowBrightness(height / 2, in: panel) > 20, "True Duo went dark across the middle at \(tilt)°")
-    // The whole screen stays on the panel: its top edge has receded into the black with room
-    // above it, and its bottom edge is still the hinge. Duo, sliding over a fixed plane, has
-    // no black above at all — it has cropped the top of the desktop away and magnified the rest.
-    func firstLitRow(_ rendered: [UInt8]) -> Int {
-        (0..<height).first { rowBrightness($0, in: rendered) > 4 } ?? height
-    }
-    let top = firstLitRow(panel)
-    try require(top > 5 && top < height / 3,
-                "True Duo's screen top sits at row \(top) at \(tilt)°, not standing clear in the black")
-    try require(firstLitRow(duo) == 0, "Duo grew a black band above the desktop")
+    // The screen keeps its full height: the top of the panel shows the top of the desktop, which
+    // in the fixture is its dark menu bar. Duo, cropping and magnifying, shows the middle of the
+    // desktop up there instead — the white notes window.
+    try require(pixelBrightness(width / 2, 0, in: panel) < 100,
+                "True Duo is not showing the top of the desktop at \(tilt)°: \(pixelBrightness(width / 2, 0, in: panel))/255")
+    try require(pixelBrightness(width / 2, 0, in: duo) > 200, "Duo stopped cropping; the fixture or Duo changed")
 }
 // Duo at the same tilt keeps filling the panel, so the two styles really do differ.
 let duoPanel = try render(RenderCase(name: "duo-corner", tilt: 35, optics: .duo).uniforms, with: renderer)
@@ -329,7 +325,7 @@ PASS — identity maximum channel error: \(maximumIdentityError)/255 (nine clear
 PASS — \(validatedUniformSets) uniform sets finite and bounded
 PASS — fixture and all rendered frames have opaque alpha
 PASS — bottom hinge maximum channel error at 20° closure: \(hingeError)/255
-PASS — True Duo hinge no worse than Duo's (\(trueDuoHinge)/255) and top corners black at 35° and 50° closure; the dissolve spans at least \(narrowestFade) pixels inside a wedge up to \(widestWedge) wide, the whole desktop stays on the panel where Duo has cropped its top away
+PASS — True Duo hinge no worse than Duo's (\(trueDuoHinge)/255) and top corners black at 35° and 50° closure; the dissolve spans at least \(narrowestFade) pixels inside a wedge up to \(widestWedge) wide, the screen keeps its full height where Duo has cropped its top away
 PASS — disabling blur and shadow is independent of the previous frame
 Rendered \(cases.count) named previews plus source-desktop.png at \(width) × \(height).
 The menu bar marks the top; the dock and hinge label mark the bottom.

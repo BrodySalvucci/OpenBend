@@ -7,9 +7,9 @@ enum BendOptics: String, CaseIterable {
     case glass
     /// Glass optics with a clear contact zone at the MacBook hinge and a diffusion pyramid (Duo).
     case duo
-    /// The desktop is the screen itself: a rigid rectangle hinged where the MacBook hinges,
-    /// lying back into space as the lid comes down. It stays whole and foreshortens as one
-    /// object, with black around it (True Duo).
+    /// The desktop is the screen itself, left standing while the lid falls in front of it.
+    /// Duo's cast, but fitted to the panel rather than cropped by it, so the whole picture
+    /// keeps its height and the sides give way to black (True Duo).
     case trueDuo
 
     var shaderMode: Float {

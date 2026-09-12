@@ -128,27 +128,27 @@ enum BendShaders {
             float overshootX = 0.0;
             float overshootY = 0.0;
             if (p3.y > 1.5) {
-                // True Duo: the desktop is not a plane the panel slides across. It is the screen
-                // itself — a rigid rectangle, hinged where the MacBook hinges, that lies back
-                // into space as the lid comes down. The whole picture stays on the panel and
-                // foreshortens as one object, its top edge receding and narrowing, with nothing
-                // but black around it. That is what reads as a screen standing in space rather
-                // than a window pane sliding over one.
-                float theta = alpha0 - alpha;                      // how far the lid has come down
-                float ct = cos(theta);
-                float st = sin(theta);
-                float lean = eye.x * ct - st * (s - eye.y);
-                if (lean < 0.001) { return float4(0.0, 0.0, 0.0, 1.0); }
-                float b = s * eye.x / lean;                        // height up the laid-back screen
-                float foreshorten = eye.x / (eye.x + b * st);      // how much it has shrunk there
-                uv = float2((z / foreshorten) / aspect + 0.5, 1.0 - b);
+                // True Duo: the desktop is the screen itself, and it stays standing while the
+                // lid falls in front of it. The picture is the rectangle the screen was, seen
+                // from the fixed eye — the same cast as Duo — but fitted to the panel instead
+                // of cropped by it, so the whole desktop stays visible however far the lid has
+                // come down. Its content compresses toward the top as that edge leans away, the
+                // sides draw in with the perspective, and the hinge keeps its full width. The
+                // panel's own top edge is where the standing screen's top edge sits, so nothing
+                // sinks: the screen holds its height and only the sides give way to black.
+                float reach = -dot(n0, eye);                        // eye, measured off the panel
+                float leanTop = max(reach + sin(alpha - alpha0), 0.0001);
+                float muTop = reach / leanTop;
+                float depth = eye.x * cos(alpha0) + eye.y * sin(alpha0);
+                // Where the panel's top edge lands on the standing screen. Fitting to it is what
+                // keeps the whole picture on the panel. It closes on zero as the panel turns
+                // edge-on, by which point the panel has already faded out.
+                float tTop = max(depth + muTop * (cos(alpha - alpha0) - depth), 0.02);
+                // Sideways the perspective is drawn exactly, which is what opens the wedges.
+                uv = float2(z * mu / aspect + 0.5, 1.0 - t / tTop);
                 outside = max(max(max(-uv.x, uv.x - 1.0), max(-uv.y, uv.y - 1.0)), 0.0);
-
-                // Where the panel reaches past the screen's own edges — nothing at the hinge,
-                // widening toward the top. This is the black, and the width of its dissolve.
-                overshootX = max(0.0, (1.0 / foreshorten - 1.0) * 0.5);
-                float leanTop = max(eye.x * ct - st * (1.0 - eye.y), 0.001);
-                overshootY = max(0.0, eye.x / leanTop - 1.0);
+                overshootX = max(0.0, (mu - 1.0) * 0.5);
+                overshootY = 0.0;                                   // fitted: nothing above or below
             }
 
             // Duo and True Duo share these optics. Leave a contact zone clear at the MacBook

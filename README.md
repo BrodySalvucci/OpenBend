@@ -73,11 +73,11 @@ Use **Preview Bend** in the menu bar to see the effect without touching the lid.
 fold on a folding phone.
 
 **True Duo** treats the desktop as the screen itself rather than as a plane the panel slides across.
-It is a rigid rectangle, hinged where the MacBook hinges, and it lies back into space as the lid
-comes down: the whole picture stays on the panel and foreshortens as one object, its top edge
-receding and its sides drawing in, with black around it. The edges dissolve into that black rather
+The screen stays standing while the lid falls in front of it: the whole picture holds its height,
+its content compressing toward the top as that edge leans away, and its sides draw in with the
+perspective until what the panel reaches past is black. Those edges dissolve into the black rather
 than ending on a line. Same sliders as Duo; Perspective sets how near the eye is, and so how hard
-the picture leans.
+the sides pull in.
 
 Three more if you want a different feel:
 

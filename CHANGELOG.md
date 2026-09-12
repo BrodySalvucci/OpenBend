@@ -25,8 +25,9 @@ First release.
 
 ## Unreleased
 
-- True Duo style: the desktop becomes the screen itself, a rigid rectangle hinged at the MacBook's
-  hinge that lies back into space as the lid comes down. It stays whole and foreshortens as one
-  object instead of being cropped and magnified, and its edges dissolve into the black around it.
+- True Duo style: the desktop becomes the screen itself, left standing while the lid falls in front
+  of it. The whole picture keeps its height instead of being cropped and magnified, its content
+  compressing toward the top, and its sides draw in until what the panel reaches past dissolves
+  into black.
 - A custom mix now remembers which optics it started from (`optics`), so Duo and True Duo mixes keep
   their look. The old `useDuoOptics` flag is migrated.

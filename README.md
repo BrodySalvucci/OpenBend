@@ -72,11 +72,10 @@ Use **Preview Bend** in the menu bar to see the effect without touching the lid.
 **Duo** is the default: clear at the hinge, progressively softer toward the top edge, like the
 fold on a folding phone.
 
-**True Duo** makes the screen itself the foldable. It is creased across the middle: the lower half
-stays exactly as it is, and the upper half folds down toward you as the lid closes, frosting over
-with a hard edge at the crease and shrinking toward it, the way the folding half of the phone does.
-Past its far edge the panel goes dark. Perspective sets how quickly it foreshortens, Blur how heavy
-the frost is, and Shadow how much its far edge darkens.
+**True Duo** is Duo with the perspective drawn exactly. The desktop stops filling the panel edge to
+edge and becomes a rectangle standing in space: as the lid comes down its sides pull in and its top
+leans away, and everything the glass no longer covers dissolves into black. The dissolve is soft, so
+the picture melts into the dark instead of ending on a hard line. Same sliders as Duo.
 
 Three more if you want a different feel:
 
@@ -118,7 +117,7 @@ These have no UI and take effect live:
 
 ```bash
 defaults write com.openbend.OpenBend eyeHeightRatio -float 0.5   # look-down angle (eye height ÷ distance)
-defaults write com.openbend.OpenBend keystone -float 0.4         # horizontal narrowing, 1 = exact, 0 = none
+defaults write com.openbend.OpenBend keystone -float 0.4         # horizontal narrowing, 1 = exact, 0 = none (True Duo is always exact)
 defaults write com.openbend.OpenBend smoothing -float 0.03       # display low-pass, seconds
 defaults write com.openbend.OpenBend leadTime -float 0.03        # motion lead to cancel latency, seconds
 ```

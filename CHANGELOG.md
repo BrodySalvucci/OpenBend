@@ -25,8 +25,8 @@ First release.
 
 ## Unreleased
 
-- True Duo style: the screen becomes the foldable, creased across the middle. The lower half stays
-  put and sharp; the upper half folds down toward you and frosts over with a hard edge at the crease,
-  shrinking toward it as the lid comes down.
+- True Duo style: Duo's optics with the perspective drawn exactly, so the desktop reads as a
+  rectangle standing in space. Its sides pull in as the lid comes down and what the glass no longer
+  covers dissolves into black instead of smearing the edge pixels outward.
 - A custom mix now remembers which optics it started from (`optics`), so Duo and True Duo mixes keep
   their look. The old `useDuoOptics` flag is migrated.

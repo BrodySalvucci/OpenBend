@@ -103,66 +103,6 @@ enum BendShaders {
             return float4(sharp.sample(smp, in.uv, level(0)).rgb, 1.0);
         }
 
-        if (p3.y > 1.5) {
-            // True Duo: the panel is the foldable, creased across its middle. The lower leaf is
-            // the screen itself and is left untouched. The upper leaf hangs from the crease and
-            // folds toward the viewer by however far the lid has closed; what the eye sees of it
-            // is cast back onto the panel, so it foreshortens toward the crease and its far edge
-            // comes down. Its glass frosts over evenly, with a hard edge at the crease.
-            const float crease = 0.5;
-            float s = 1.0 - in.uv.y;                                   // 0 hinge … 1 top of panel
-            if (s <= crease) {
-                return float4(sharp.sample(smp, in.uv, level(0)).rgb, 1.0);
-            }
-            float z = (in.uv.x - 0.5) * aspect;
-            float2 up0 = float2(cos(alpha0), sin(alpha0));             // up the panel
-            float2 up = float2(cos(alpha), sin(alpha));                // up the folded leaf
-            float3 fold = float3(crease * up0, 0.0);                   // the crease, on the panel
-            float3 leafNormal = float3(-up.y, up.x, 0.0);
-            float3 p = float3(s * up0, z);                             // this panel pixel
-
-            // Cast from the eye through the panel pixel onto the leaf.
-            float3 dir = p - eye;
-            float denominator = dot(leafNormal, dir);
-            float mu = abs(denominator) > 0.00001 ? dot(leafNormal, fold - eye) / denominator : -1.0;
-            float3 q = eye + mu * dir;
-            float t = dot(q.xy - fold.xy, up);                         // height up the leaf
-            float widen = 1.0 + keystone * (mu - 1.0);                 // perspective widening, scaled
-            float lateral = z * widen;
-            float2 uv = float2(lateral / aspect + 0.5, 1.0 - (crease + t));
-
-            // The leaf's far edge, cast onto the panel. Above it the eye looks past the leaf
-            // into nothing; the edge itself stays crisp, the way the phone's does.
-            float3 tip = fold + float3((1.0 - crease) * up, 0.0);
-            float3 n0 = float3(-up0.y, up0.x, 0.0);
-            float3 tipDir = tip - eye;
-            float tipDenominator = dot(n0, tipDir);
-            float tipMu = abs(tipDenominator) > 0.00001 ? -dot(n0, eye) / tipDenominator : -1.0;
-            float tipS = dot((eye + tipMu * tipDir).xy, up0);
-            // Edges sit on pixel centers, so an edge lying exactly on the panel's own edge (the
-            // sides, at the crease) keeps full coverage instead of a half-covered dark seam.
-            float pixel = 1.0 / max(p1.w, 1.0);
-            float sideZ = aspect * 0.5 / max(widen, 0.001);
-            float coverage = smoothstep(0.0, 1.5 * pixel, tipS - s + pixel) * smoothstep(0.0, 1.5 * pixel, sideZ - abs(z) + pixel);
-            if (mu <= 0.0 || tipMu <= 0.0 || coverage <= 0.0) {
-                return float4(0.0, 0.0, 0.0, 1.0);
-            }
-
-            // Frost evenly across the leaf: heavy diffusion, a lift toward white, fine grain.
-            float frostAmount = saturate(blur / 0.45);
-            float radius = blur * 0.045 * p1.w;
-            float sourceRadius = radius * float(sharp.get_height()) / max(p1.w, 1.0);
-            float lod = clamp(log2(1.0 + sourceRadius), 0.0, float(diffusion.get_num_mip_levels() - 1));
-            float3 color = diffusion.sample(smp, clamp(uv, 0.0, 1.0), level(lod)).rgb;
-            color = frost(color, frostAmount, in.position.xy);
-
-            // The lid shades the far edge of the leaf first; the leaf goes dark as it turns edge-on.
-            float rise = saturate(t / (1.0 - crease));
-            float shade = shadow * (0.12 + 0.50 * rise * rise);
-            color *= (1.0 - shade) * visibility * coverage;
-            return float4(saturate(color), 1.0);
-        }
-
         // Panel pixel → point on the physical screen. Screen is 1 unit tall, hinge at the origin,
         // +x toward the viewer, +y up, z across the panel.
         float s = 1.0 - in.uv.y;                                   // 0 hinge … 1 top of panel
@@ -185,8 +125,9 @@ enum BendShaders {
         outside = max(outside, 0.0);
 
         if (p3.y > 0.5) {
-            // Leave a contact zone clear at the MacBook hinge. The glass-to-content distance
-            // grows toward the top, so blur develops spatially instead of dimming the whole panel.
+            // Duo and True Duo share these optics. Leave a contact zone clear at the MacBook
+            // hinge. The glass-to-content distance grows toward the top, so blur develops
+            // spatially instead of dimming the whole panel.
             float separation = smoothstep(0.12, 0.92, s);
             float diffusionAmount = pow(separation, 1.15);
             float radius = blur * diffusionAmount * 0.055 * p1.w;
@@ -206,7 +147,18 @@ enum BendShaders {
             float grazing = ramp * separation;
             color += (1.0 - color) * (0.024 * reflection * grazing);
             float shade = shadow * (0.08 + 0.50 * s * s);
-            color *= (1.0 - shade) * (1.0 - 0.24 * outsideMix) * visibility;
+            color *= (1.0 - shade) * visibility;
+
+            if (p3.y > 1.5) {
+                // True Duo draws the narrowing exactly, so the desktop reads as a rectangle
+                // standing in space: the further the lid comes down, the more the sides pull in
+                // and the top edge leans away. There is nothing behind the glass out there, so
+                // instead of smearing the edge pixels outward the picture dissolves into black
+                // over a soft band — black corners, but never a black border drawn on a line.
+                color *= 1.0 - smoothstep(0.0, 0.04, outside);
+            } else {
+                color *= 1.0 - 0.24 * outsideMix;
+            }
             return float4(saturate(color), 1.0);
         }
 

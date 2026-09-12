@@ -270,7 +270,7 @@ final class BendController {
         lastTick = now
 
         let eye = BendMath.eye(perspective: settings.perspective, heightRatio: settings.eyeHeightRatio)
-        let maxTilt = BendMath.maximumTilt(clearAngle: projectionReference, eye: eye, optics: settings.optics)
+        let maxTilt = BendMath.maximumTilt(clearAngle: projectionReference, eye: eye)
         // The preview is already a continuous curve. Quantized physical/manual input needs
         // reconstruction using sensor change times, independently of display frame rate.
         let angle = preview != nil ? effectiveAngle : motionTracker.value(

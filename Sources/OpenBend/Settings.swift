@@ -20,7 +20,7 @@ enum BendStyle: String, CaseIterable, Identifiable {
     var blurb: String {
         switch self {
         case .duo: "Clear at the hinge. Soft toward the edge."
-        case .trueDuo: "Creased across the middle. The top half folds down and frosts over."
+        case .trueDuo: "Duo, standing in space. Past the desktop's edges the picture fades to black."
         case .silk: "A clean tilt with a whisper of blur."
         case .shade: "The lid casts a shadow as it comes down."
         case .frost: "Frosted glass. The desktop softens into haze."
@@ -31,7 +31,7 @@ enum BendStyle: String, CaseIterable, Identifiable {
     var symbol: String {
         switch self {
         case .duo: "rectangle.bottomhalf.filled"
-        case .trueDuo: "rectangle.tophalf.filled"
+        case .trueDuo: "cube.transparent"
         case .silk: "wind"
         case .shade: "moon.fill"
         case .frost: "snowflake"
@@ -43,7 +43,7 @@ enum BendStyle: String, CaseIterable, Identifiable {
     var preset: (Double, Double, Double)? {
         switch self {
         case .duo: (0.58, 0.85, 0.28)
-        case .trueDuo: (0.58, 0.90, 0.20)
+        case .trueDuo: (0.58, 0.85, 0.28)
         case .silk: (0.72, 0.25, 0.25)
         case .shade: (0.75, 0.15, 0.85)
         case .frost: (0.62, 0.90, 0.30)

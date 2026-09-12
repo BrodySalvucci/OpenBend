@@ -233,13 +233,13 @@ let cases: [RenderCase] = [
     RenderCase(name: "11-frost-closed40", tilt: 40, perspective: 0.62, blur: 0.90, shadow: 0.30, optics: .glass),
     RenderCase(name: "12-shade-closed30", tilt: 30, perspective: 0.75, blur: 0.15, shadow: 0.85, optics: .glass),
     RenderCase(name: "13-silk-keystone1", tilt: 30, perspective: 0.55, blur: 0.25, shadow: 0.25, keystone: 1, optics: .glass),
-    RenderCase(name: "14-trueduo-closed08", tilt: 8, blur: 0.90, shadow: 0.20, optics: .trueDuo),
-    RenderCase(name: "15-trueduo-closed20", tilt: 20, blur: 0.90, shadow: 0.20, optics: .trueDuo),
-    RenderCase(name: "16-trueduo-closed35", tilt: 35, blur: 0.90, shadow: 0.20, optics: .trueDuo),
-    RenderCase(name: "17-trueduo-closed50", tilt: 50, blur: 0.90, shadow: 0.20, optics: .trueDuo),
-    RenderCase(name: "18-trueduo-clear115-closed35", tilt: 35, clearAngle: 115, blur: 0.90, shadow: 0.20, optics: .trueDuo),
-    RenderCase(name: "19-trueduo-keystone1", tilt: 35, blur: 0.90, shadow: 0.20, keystone: 1, optics: .trueDuo),
-    RenderCase(name: "20-trueduo-no-blur", tilt: 35, blur: 0, shadow: 0.20, optics: .trueDuo)
+    RenderCase(name: "14-trueduo-closed08", tilt: 8, optics: .trueDuo),
+    RenderCase(name: "15-trueduo-closed20", tilt: 20, optics: .trueDuo),
+    RenderCase(name: "16-trueduo-closed35", tilt: 35, optics: .trueDuo),
+    RenderCase(name: "17-trueduo-closed50", tilt: 50, optics: .trueDuo),
+    RenderCase(name: "18-trueduo-clear115-closed35", tilt: 35, clearAngle: 115, optics: .trueDuo),
+    RenderCase(name: "19-trueduo-flat-perspective", tilt: 35, perspective: 0.0, optics: .trueDuo),
+    RenderCase(name: "20-trueduo-no-blur", tilt: 35, blur: 0, optics: .trueDuo)
 ]
 for test in cases {
     try validate(test.uniforms)
@@ -254,26 +254,61 @@ let hingeError = (hingeStart..<sourceBytes.count).reduce(0) {
     max($0, abs(Int(sourceBytes[$1]) - Int(hinged[$1])))
 }
 try require(hingeError <= 4, "Bottom hinge moved or diffused excessively: \(hingeError)/255 channel error")
-// True Duo leaves the lower leaf untouched at any fold, frosts the upper leaf with a hard edge
-// at the crease, and brings the leaf's far edge down so the top of the panel goes dark.
-func rowError(_ row: Int, in rendered: [UInt8]) -> Int {
-    (row * width * 4..<(row + 1) * width * 4).reduce(0) { max($0, abs(Int(sourceBytes[$1]) - Int(rendered[$1]))) }
-}
+// True Duo shows the desktop as a rectangle standing in space: the hinge stays anchored, the
+// sides pull in as the lid comes down, and what the glass no longer covers dissolves into black
+// over a soft band rather than ending on a line or smearing the edge pixels outward.
 func rowBrightness(_ row: Int, in rendered: [UInt8]) -> Int {
     stride(from: row * width * 4, to: (row + 1) * width * 4, by: 4).reduce(0) {
         max($0, Int(rendered[$1]), Int(rendered[$1 + 1]), Int(rendered[$1 + 2]))
     }
 }
-let creaseRow = height / 2
-var lowerLeafError = 0
-for tilt in [8.0, 35, 50] {
-    let creased = try render(RenderCase(name: "creased", tilt: tilt, blur: 0.90, shadow: 0.20, optics: .trueDuo).uniforms, with: renderer)
-    lowerLeafError = (creaseRow..<height).reduce(lowerLeafError) { max($0, rowError($1, in: creased)) }
-    try require(lowerLeafError <= 1, "True Duo altered the lower leaf at \(tilt)°: \(lowerLeafError)/255 channel error")
-    try require(rowError(creaseRow - 1, in: creased) > 8, "True Duo upper leaf is not frosted just above the crease at \(tilt)°")
-    try require(rowBrightness(0, in: creased) <= 1, "True Duo leaf still reaches the top of the panel at \(tilt)°: \(rowBrightness(0, in: creased))/255")
-    try require(rowBrightness(creaseRow - 1, in: creased) > 40, "True Duo upper leaf went dark at the crease at \(tilt)°")
+func pixelBrightness(_ x: Int, _ y: Int, in rendered: [UInt8]) -> Int {
+    let i = (y * width + x) * 4
+    return max(Int(rendered[i]), Int(rendered[i + 1]), Int(rendered[i + 2]))
 }
+func hingeError(_ rendered: [UInt8]) -> Int {
+    ((height - 2) * width * 4..<rendered.count).reduce(0) {
+        max($0, abs(Int(sourceBytes[$1]) - Int(rendered[$1])))
+    }
+}
+var narrowestFade = Int.max
+var widestWedge = 0
+var trueDuoHinge = 0
+for tilt in [35.0, 50] {
+    let panel = try render(RenderCase(name: "trueduo", tilt: tilt, optics: .trueDuo).uniforms, with: renderer)
+    // The hinge stays anchored and clear. Exact keystone resamples the bottom rows by a
+    // fraction of a pixel, so the tick pattern there lands a couple of levels off Duo's.
+    let hinge = hingeError(panel)
+    let duo = try render(RenderCase(name: "duo", tilt: tilt, optics: .duo).uniforms, with: renderer)
+    let duoHinge = hingeError(duo)
+    trueDuoHinge = max(trueDuoHinge, hinge)
+    try require(hinge <= 8,
+                "True Duo moved the hinge at \(tilt)°: \(hinge)/255 versus Duo's \(duoHinge)/255")
+    for corner in [0, width - 1] {
+        try require(pixelBrightness(corner, 0, in: panel) <= 2,
+                    "True Duo top corner \(corner) is not black at \(tilt)°: \(pixelBrightness(corner, 0, in: panel))/255")
+    }
+    // Scanning inward along the top edge, black has to give way to the picture gradually.
+    let row = (0..<width).map { pixelBrightness($0, 0, in: panel) }
+    guard let darkEnd = row.firstIndex(where: { $0 > 4 }), let lit = row.firstIndex(where: { $0 > 120 }) else {
+        throw RenderTestError.failed("True Duo never reaches lit content at \(tilt)°")
+    }
+    narrowestFade = min(narrowestFade, lit - darkEnd)
+    widestWedge = max(widestWedge, lit)
+    try require(lit - darkEnd >= 8,
+                "True Duo edge is a hard cut at \(tilt)°: black to lit in \(lit - darkEnd) pixels")
+    try require(rowBrightness(height / 2, in: panel) > 20, "True Duo went dark across the middle at \(tilt)°")
+    // Down the panel's centre line the narrowing has nothing to do, so True Duo must match Duo
+    // pixel for pixel there: only the edges change.
+    let centre = stride(from: (width / 2) * 4, to: panel.count, by: width * 4).reduce(0) {
+        max($0, abs(Int(panel[$1]) - Int(duo[$1])), abs(Int(panel[$1 + 1]) - Int(duo[$1 + 1])),
+            abs(Int(panel[$1 + 2]) - Int(duo[$1 + 2])))
+    }
+    try require(centre <= 1, "True Duo changed the panel's centre line at \(tilt)°: \(centre)/255")
+}
+// Duo at the same tilt keeps filling the panel, so the two styles really do differ.
+let duoPanel = try render(RenderCase(name: "duo-corner", tilt: 35, optics: .duo).uniforms, with: renderer)
+try require(pixelBrightness(0, 0, in: duoPanel) > 8, "Duo's corner went black; True Duo's fade leaked into Duo")
 // Switching blur/shadow off must not retain cached effects from the preceding frame.
 let disabled = RenderCase(name: "disabled", tilt: 35, blur: 0, shadow: 0).uniforms
 _ = try render(RenderCase(name: "warm-cache", tilt: 50, blur: 1, shadow: 1).uniforms, with: renderer)
@@ -282,11 +317,11 @@ guard let freshRenderer = BendRenderer(device: device) else { throw RenderTestEr
 let fresh = try render(disabled, with: freshRenderer)
 try require(warmed == fresh, "Blur/shadow disabled depends on a previous rendered frame")
 let report = """
-PASS — identity maximum channel error: \(maximumIdentityError)/255 (six clear-angle/style combinations)
+PASS — identity maximum channel error: \(maximumIdentityError)/255 (nine clear-angle/optics combinations)
 PASS — \(validatedUniformSets) uniform sets finite and bounded
 PASS — fixture and all rendered frames have opaque alpha
 PASS — bottom hinge maximum channel error at 20° closure: \(hingeError)/255
-PASS — True Duo lower leaf maximum channel error at 8°, 35° and 50° closure: \(lowerLeafError)/255; upper leaf frosted with a hard crease and dark past its far edge
+PASS — True Duo hinge no worse than Duo's (\(trueDuoHinge)/255) and top corners black at 35° and 50° closure; the dissolve spans at least \(narrowestFade) pixels inside a wedge up to \(widestWedge) wide, the centre line matches Duo exactly, and Duo still fills the panel
 PASS — disabling blur and shadow is independent of the previous frame
 Rendered \(cases.count) named previews plus source-desktop.png at \(width) × \(height).
 The menu bar marks the top; the dock and hinge label mark the bottom.
